@@ -15,6 +15,10 @@ const CONFIG = {
     printerName: 'CAPTURE_PRINTER',
     printWindowDuration: 60000,
     watchInterval: 2000,
+    // Sotto questa lunghezza (caratteri, dopo trim) un file viene considerato
+    // un comando di stampa (es. apertura cassetto) e non uno scontrino vero,
+    // quindi viene ignorato senza normalizzazione/invio a Firebase.
+    minReceiptLength: 20,
     logFile: './receipt-processor.log'
 };
 
@@ -86,9 +90,18 @@ function watchCaptureDirectory() {
 
 async function processReceiptFile(filePath, rawTextArg, normalizedReceiptArg) {
     try {
+        const rawText = rawTextArg !== undefined ? rawTextArg : fs.readFileSync(filePath, 'utf8');
+        
+        // File di comando (es. apertura cassetto) generati dal gestionale come
+        // lavori di stampa separati: testo troppo corto per essere uno scontrino,
+        // vengono ignorati silenziosamente senza normalizzazione/invio.
+        if (rawText.trim().length < CONFIG.minReceiptLength) {
+            log(`Ignorato file di comando/non scontrino (${rawText.trim().length} caratteri): ${path.basename(filePath)}`, 'SKIP');
+            return;
+        }
+        
         log(`Elaborazione file: ${path.basename(filePath)}`, 'PROCESS');
         
-        const rawText = rawTextArg !== undefined ? rawTextArg : fs.readFileSync(filePath, 'utf8');
         const normalizedReceipt = normalizedReceiptArg !== undefined ? normalizedReceiptArg : normalizer.normalize(rawText);
         
         log(`Ricevuta normalizzata: totale €${normalizedReceipt.total || 'N/A'}`, 'PROCESS');
