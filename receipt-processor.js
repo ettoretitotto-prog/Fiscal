@@ -19,8 +19,13 @@ const CONFIG = {
     // un comando di stampa (es. apertura cassetto) e non uno scontrino vero,
     // quindi viene ignorato senza normalizzazione/invio a Firebase.
     minReceiptLength: 20,
-    logFile: './receipt-processor.log'
+    logFile: './receipt-processor.log',
+    // Sottocartella dove vengono spostati i file già inviati con successo
+    // (o messi in coda offline), per non lasciarli nella cartella principale
+    // e non farli rileggere dal watcher in futuro.
+    processedDir: './captured_receipts/processed'
 };
+
 
 const processedFiles = new Set();
 let lastReceiptData = null;
@@ -44,8 +49,31 @@ function log(message, level = 'INFO') {
 }
 
 // ============================================================================
+// PROCESSED FILES MANAGEMENT
+// ============================================================================
+
+/**
+ * Sposta un file elaborato con successo nella sottocartella "processed/",
+ * così non resta nella cartella principale e non può essere riletto/rinviato
+ * in futuro dal watcher, anche se il Set in memoria venisse perso (riavvio).
+ */
+function moveToProcessed(filePath) {
+    try {
+        if (!fs.existsSync(CONFIG.processedDir)) {
+            fs.mkdirSync(CONFIG.processedDir, { recursive: true });
+        }
+        const destPath = path.join(CONFIG.processedDir, path.basename(filePath));
+        fs.renameSync(filePath, destPath);
+        log(`📁 File spostato in processed/: ${path.basename(filePath)}`, 'PROCESS');
+    } catch (err) {
+        log(`Errore spostamento file in processed/: ${err.message}`, 'ERROR');
+    }
+}
+
+// ============================================================================
 // FILE WATCHER
 // ============================================================================
+
 
 function watchCaptureDirectory() {
     log('Inizio monitoraggio cartella di cattura', 'WATCH');
@@ -119,7 +147,15 @@ async function processReceiptFile(filePath, rawTextArg, normalizedReceiptArg) {
             log(`⚠️  Ricevuta scartata dal guardiano finale: ${sendResult.reason || ''}`, 'DISCARD');
         }
         
+        // Sposta il file in processed/ solo se è stato inviato con successo
+        // o accodato offline (non se scartato dal guardiano, per poterlo
+        // ispezionare manualmente in caso di anomalie).
+        if (sendResult.success || sendResult.queued) {
+            moveToProcessed(filePath);
+        }
+        
         lastReceiptData = {
+
             rawText,
             normalizedReceipt,
             timestamp: new Date().toISOString()
@@ -251,8 +287,24 @@ function main() {
         log(`Cartella creata: ${CONFIG.captureDir}`, 'INIT');
     }
     
+    // Pre-popola l'elenco dei file già visti con quelli già presenti in
+    // captureDir al momento dell'avvio (es. residui di una sessione precedente
+    // interrotta prima dello spostamento in processed/), così il watcher non
+    // li tratta come "nuovi" e non li rinvia a Firebase.
+    try {
+        const existingFiles = fs.readdirSync(CONFIG.captureDir)
+            .filter(file => file.endsWith('.txt'));
+        existingFiles.forEach(f => processedFiles.add(f));
+        if (existingFiles.length > 0) {
+            log(`Ignorati ${existingFiles.length} file già presenti all'avvio: ${existingFiles.join(', ')}`, 'INIT');
+        }
+    } catch (err) {
+        log(`Errore durante la lettura dei file esistenti: ${err.message}`, 'ERROR');
+    }
+    
     // Avvia il monitoraggio
     watchCaptureDirectory();
+
     
     // Avvia il system tray
     createSystemTrayIcon();
