@@ -1,0 +1,28 @@
+# Credenziali sensibili - NON committare mai (Firebase Admin SDK privato)
+serviceAccountKey.json
+.env
+.env.*
+
+# Dipendenze
+node_modules/
+
+# Log
+*.log
+capture.log
+firebase-sender.log
+
+# File di runtime / cattura scontrini (dati di test locali)
+captured_receipts/
+offline_queue.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+*.swp
+
+# Firebase / Python cache
+.firebase/
+__pycache__/
+*.pyc
+

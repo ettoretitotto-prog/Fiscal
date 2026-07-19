@@ -1,0 +1,11 @@
+{
+  "hosting": {
+    "public": ".",
+    "ignore": ["firebase.json", ".firebaserc", "**/.*", "**/node_modules/**", ".venv/**", "__pycache__/**", "**/*.py", "**/*.pyc", "README.md", "main.py"],
+    "rewrites": [
+      { "source": "/cassa.html", "destination": "/cassa.html" },
+      { "source": "**", "destination": "/index.html" }
+    ]
+  },
+  "database": { "rules": "database.rules.json" }
+}

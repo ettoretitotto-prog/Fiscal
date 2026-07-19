@@ -1,0 +1,47 @@
+{
+  "rules": {
+    "scontrini": {
+      ".read": true,
+      ".write": true,
+      "$receipt_id": {
+        ".validate": "newData.hasChildren(['cassa_id', 'timestamp', 'status', 'data', 'receipt_id'])"
+      }
+    },
+    "clienti": {
+      ".read": false,
+      ".write": false,
+      "$cassa": {
+        ".read": false,
+        ".write": false,
+        "instagram": {
+          ".read": false,
+          ".write": false,
+          "$handle": {
+            ".read": false,
+            ".write": "!root.child('clienti').child($cassa).child('instagram').child($handle).exists() || root.child('clienti').child($cassa).child('instagram').child($handle).exists()",
+            ".validate": "newData.hasChildren(['instagram_handle', 'primo_contatto', 'ultimo_contatto', 'numero_scontrini', 'opt_in_marketing']) && newData.child('instagram_handle').isString() && newData.child('opt_in_marketing').isBoolean()",
+            "instagram_handle": { ".validate": "newData.isString()" },
+            "primo_contatto": { ".validate": "newData.isNumber()" },
+            "ultimo_contatto": { ".validate": "newData.isNumber()" },
+            "numero_scontrini": { ".validate": "newData.isNumber()" },
+            "opt_in_marketing": { ".validate": "newData.isBoolean()" }
+          }
+        },
+        "telefono": {
+          ".read": false,
+          ".write": false,
+          "$number": {
+            ".read": false,
+            ".write": "!root.child('clienti').child($cassa).child('telefono').child($number).exists() || root.child('clienti').child($cassa).child('telefono').child($number).exists()",
+            ".validate": "newData.hasChildren(['telefono', 'primo_contatto', 'ultimo_contatto', 'numero_scontrini', 'opt_in_marketing']) && newData.child('telefono').isString() && newData.child('opt_in_marketing').isBoolean()",
+            "telefono": { ".validate": "newData.isString()" },
+            "primo_contatto": { ".validate": "newData.isNumber()" },
+            "ultimo_contatto": { ".validate": "newData.isNumber()" },
+            "numero_scontrini": { ".validate": "newData.isNumber()" },
+            "opt_in_marketing": { ".validate": "newData.isBoolean()" }
+          }
+        }
+      }
+    }
+  }
+}
