@@ -15,13 +15,20 @@ const CONFIG = {
     printerName: 'CAPTURE_PRINTER',
     printWindowDuration: 60000,
     watchInterval: 2000,
+    // Finestra di debounce: se arrivano più file .txt entro questo intervallo
+    // vengono considerati parte dello stesso ordine/scontrino e aggregati
+    // in un unico invio, invece di essere trattati come scontrini separati.
+    batchDebounceMs: 3000,
     logFile: './receipt-processor.log'
 };
 
-let lastProcessedFile = null;
+const processedFiles = new Set();
+let pendingBatchFiles = [];
+let batchDebounceTimer = null;
 let lastReceiptData = null;
 let printWindowOpen = false;
 let printWindowTimeout = null;
+
 
 // ============================================================================
 // LOGGING
@@ -59,13 +66,28 @@ function watchCaptureDirectory() {
                 return;
             }
             
-            const latestFile = files[files.length - 1];
-            const filePath = path.join(CONFIG.captureDir, latestFile);
+            // Individua eventuali file nuovi non ancora visti né già in coda
+            const newFiles = files.filter(
+                f => !processedFiles.has(f) && !pendingBatchFiles.includes(f)
+            );
             
-            if (latestFile !== lastProcessedFile) {
-                log(`Nuovo file rilevato: ${latestFile}`, 'WATCH');
-                processReceiptFile(filePath);
-                lastProcessedFile = latestFile;
+            if (newFiles.length > 0) {
+                newFiles.forEach(f => {
+                    log(`Nuovo file rilevato: ${f}`, 'WATCH');
+                    pendingBatchFiles.push(f);
+                });
+                
+                // Ogni volta che arriva un nuovo file, rinnoviamo il timer di debounce.
+                // Il batch viene elaborato solo quando non arrivano nuovi file
+                // per "batchDebounceMs" millisecondi: in questo modo tutti i file
+                // generati da un singolo ordine (job di stampa spezzati da RedMon/
+                // dal gestionale) vengono aggregati e trattati come un unico scontrino.
+                if (batchDebounceTimer) {
+                    clearTimeout(batchDebounceTimer);
+                }
+                batchDebounceTimer = setTimeout(() => {
+                    processPendingBatch();
+                }, CONFIG.batchDebounceMs);
             }
             
         } catch (err) {
@@ -78,21 +100,98 @@ function watchCaptureDirectory() {
 // RECEIPT PROCESSING
 // ============================================================================
 
-async function processReceiptFile(filePath) {
+/**
+ * Elabora il batch di file .txt accumulati nella finestra di debounce.
+ * Sceglie il file "migliore" (testo non vuoto e totale valido) tra quelli
+ * del batch e lo invia a Firebase; tutti gli altri vengono scartati ma
+ * marcati come processati per evitare che vengano ritentati o rinviati.
+ */
+async function processPendingBatch() {
+    const filesInBatch = pendingBatchFiles;
+    pendingBatchFiles = [];
+    batchDebounceTimer = null;
+    
+    if (filesInBatch.length === 0) {
+        return;
+    }
+    
+    if (filesInBatch.length > 1) {
+        log(`Batch di ${filesInBatch.length} file rilevati nella stessa finestra temporale: ${filesInBatch.join(', ')}`, 'WATCH');
+    }
+    
+    // Analizza ogni file del batch, marcandolo comunque come "processato"
+    // in modo da non riconsiderarlo nei tick successivi.
+    const candidates = [];
+    for (const fileName of filesInBatch) {
+        processedFiles.add(fileName);
+        const filePath = path.join(CONFIG.captureDir, fileName);
+        
+        try {
+            const rawText = fs.readFileSync(filePath, 'utf8');
+            const normalizedReceipt = normalizer.normalize(rawText);
+            
+            const hasValidTotal = normalizedReceipt.total !== undefined
+                && normalizedReceipt.total !== null
+                && normalizedReceipt.total !== 'N/A'
+                && !Number.isNaN(Number(normalizedReceipt.total));
+            
+            candidates.push({
+                fileName,
+                filePath,
+                rawText,
+                normalizedReceipt,
+                hasValidTotal,
+                textLength: rawText.trim().length
+            });
+        } catch (err) {
+            log(`Errore lettura/normalizzazione file ${fileName}: ${err.message}`, 'ERROR');
+        }
+    }
+    
+    // Tra i candidati, preferiamo quelli con totale valido e testo non vuoto,
+    // scegliendo il testo più "completo" (più lungo) in caso di più validi.
+    const valid = candidates.filter(c => c.hasValidTotal && c.textLength > 0);
+    
+    let chosen = null;
+    if (valid.length > 0) {
+        chosen = valid.reduce((best, cur) => (cur.textLength > best.textLength ? cur : best));
+    }
+    
+    if (candidates.length > 1) {
+        const discarded = candidates.filter(c => c !== chosen);
+        discarded.forEach(c => {
+            log(`⚠️  File scartato (frammento incompleto/totale non valido): ${c.fileName}`, 'DISCARD');
+        });
+    }
+    
+    if (!chosen) {
+        log(`⚠️  Nessun file valido nel batch (totale N/A o testo vuoto), nessun invio a Firebase`, 'DISCARD');
+        return;
+    }
+    
+    await processReceiptFile(chosen.filePath, chosen.rawText, chosen.normalizedReceipt);
+}
+
+async function processReceiptFile(filePath, rawTextArg, normalizedReceiptArg) {
     try {
         log(`Elaborazione file: ${path.basename(filePath)}`, 'PROCESS');
         
-        const rawText = fs.readFileSync(filePath, 'utf8');
-        const normalizedReceipt = normalizer.normalize(rawText);
+        const rawText = rawTextArg !== undefined ? rawTextArg : fs.readFileSync(filePath, 'utf8');
+        const normalizedReceipt = normalizedReceiptArg !== undefined ? normalizedReceiptArg : normalizer.normalize(rawText);
         
         log(`Ricevuta normalizzata: totale €${normalizedReceipt.total || 'N/A'}`, 'PROCESS');
         
         const sendResult = await sender.sendReceipt(normalizedReceipt);
         
         if (sendResult.success) {
-            log(`✅ Ricevuta inviata a Firebase: ${sendResult.receipt_id}`, 'SUCCESS');
+            // Nota: il log di successo con l'ID definitivo viene già emesso da
+            // firebase-receipt-sender.js (sendWithRetry). Non lo ripetiamo qui
+            // per evitare la doppia riga di log per lo stesso invio.
+            log(`Elaborazione completata con successo`, 'PROCESS');
         } else if (sendResult.queued) {
             log(`📦 Ricevuta messa in coda offline`, 'QUEUE');
+        } else if (sendResult.discarded) {
+            log(`⚠️  Ricevuta scartata dal guardiano finale: ${sendResult.reason || ''}`, 'DISCARD');
         }
         
         lastReceiptData = {
@@ -107,6 +206,7 @@ async function processReceiptFile(filePath) {
         log(`Errore elaborazione: ${err.message}`, 'ERROR');
     }
 }
+
 
 // ============================================================================
 // PRINT WINDOW

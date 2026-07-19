@@ -335,10 +335,40 @@ async function sendReceipt(normalizedReceipt) {
     try {
         log(`Invio ricevuta: totale €${normalizedReceipt.total || 'N/A'}`, 'SEND');
         
+        // ------------------------------------------------------------------
+        // GUARDIANO DI SICUREZZA: non salvare mai su Firebase un documento
+        // con testo grezzo vuoto o totale non valido (N/A/null/NaN).
+        // Protegge da frammenti di stampa incompleti (es. job di stampa
+        // spezzati da RedMon/dal gestionale) anche in casi non previsti
+        // a monte dal watcher.
+        // ------------------------------------------------------------------
+        const rawText = normalizedReceipt.raw_text !== undefined
+            ? normalizedReceipt.raw_text
+            : normalizedReceipt.rawText;
+        const hasEmptyRawText = rawText !== undefined && String(rawText).trim().length === 0;
+        const total = normalizedReceipt.total;
+        const hasInvalidTotal = total === undefined
+            || total === null
+            || total === 'N/A'
+            || Number.isNaN(Number(total));
+        
+        if (hasEmptyRawText || hasInvalidTotal) {
+            const reason = hasEmptyRawText
+                ? 'raw_text vuoto'
+                : 'totale non valido (N/A)';
+            log(`⚠️  Ricevuta scartata dal guardiano finale: ${reason}`, 'DISCARD');
+            return {
+                success: false,
+                discarded: true,
+                reason
+            };
+        }
+        
         // Aggiungi il register_id se non presente
         if (!normalizedReceipt.register_id) {
             normalizedReceipt.register_id = CONFIG.register_id;
         }
+
         
         try {
             // Prova a inviare a Firebase
