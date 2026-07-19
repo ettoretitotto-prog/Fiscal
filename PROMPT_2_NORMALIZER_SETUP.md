@@ -564,7 +564,7 @@ const fs = require('fs');
 const path = require('path');
 
 const CAPTURE_DIR = './captured_receipts';
-const REGISTER_ID = 'cassa-01-negozio-test';
+const REGISTER_ID = 'demo01';
 
 console.log('📂 Normalizzazione file da:', CAPTURE_DIR);
 console.log('🏪 Register ID:', REGISTER_ID);

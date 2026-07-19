@@ -302,7 +302,7 @@ Entro ~2 secondi (intervallo di polling `watchInterval`), dovresti vedere appari
 [...] [WATCH] Nuovo file rilevato: receipt_20260719_....txt
 [...] [PROCESS] Elaborazione file: receipt_20260719_....txt
 [...] [PROCESS] Ricevuta normalizzata: totale €4.00
-[...] [SUCCESS] ✅ Ricevuta inviata a Firebase: cassa-01-negozio-test_...
+[...] [SUCCESS] ✅ Ricevuta inviata a Firebase: demo01_...
 [...] [PRINT] 🖨️  Finestra di stampa aperta (60 secondi)
 ```
 
@@ -321,7 +321,7 @@ Dovresti trovare una riga con `success: true` e il `receipt_id` generato.
 1. Vai su https://console.firebase.google.com
 2. Seleziona il progetto **`fiscal-9a0c8`**
 3. Vai su **Realtime Database** nel menu laterale
-4. Naviga nell'albero dei dati: dovresti trovare un nodo con il `register_id` configurato (`cassa-01-negozio-test` di default in `config.json`) e sotto una entry con il receipt appena inviato, con i campi normalizzati (`store_name`, `items`, `total`, `timestamp`, ecc.)
+4. Naviga nell'albero dei dati: dovresti trovare un nodo con il `register_id` configurato (`demo01` di default in `config.json`) e sotto una entry con il receipt appena inviato, con i campi normalizzati (`store_name`, `items`, `total`, `timestamp`, ecc.)
 
 Se vedi il tuo scontrino di test lì, **il test end-to-end è riuscito**: stampa virtuale → cattura → normalizzazione → scrittura su Firebase funziona correttamente sul PC Windows.
 

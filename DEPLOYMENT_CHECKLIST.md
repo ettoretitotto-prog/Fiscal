@@ -83,7 +83,7 @@ curl http://localhost:8000/
 ```
 
 #### 3.2 Verifica su browser
-1. Apri http://localhost:8000/?cassa=TV01 (o il tuo URL)
+1. Apri http://localhost:8000/?cassa=demo01 (o il tuo URL)
 2. Attendi lo spinner "In attesa del tuo scontrino digitale..."
 3. Verifica che il form non sia visibile (ancora nascosto)
 
@@ -103,7 +103,7 @@ curl http://localhost:8000/
    curl -X POST http://localhost:8000/api/receipt \
      -H "Content-Type: application/json" \
      -d '{
-       "cassa_id": "TV01",
+       "cassa_id": "demo01",
        "store_name": "Negozio Test",
        "items": [
          {"name": "Prodotto 1", "qty": 1, "price": 10.00}
@@ -113,7 +113,7 @@ curl http://localhost:8000/
      }'
    ```
 
-2. **Scansiona NFC** (o accedi manualmente a http://localhost:8000/?cassa=TV01)
+2. **Scansiona NFC** (o accedi manualmente a http://localhost:8000/?cassa=demo01)
    - Dovrebbe apparire lo scontrino
    - Subito dopo, dovrebbe apparire il form "📱 Rimani in contatto"
 
@@ -125,7 +125,7 @@ curl http://localhost:8000/
 
 4. **Verifica su Firebase Console**
    - Accedi a Realtime Database
-   - Naviga a `clienti/TV01/instagram/mario_rossi`
+   - Naviga a `clienti/demo01/instagram/mario_rossi`
    - Dovrebbe contenere:
      ```json
      {
@@ -144,7 +144,7 @@ curl http://localhost:8000/
    - Dovrebbe apparire "✓ Grazie! Ti contatteremo presto"
 
 6. **Verifica su Firebase Console**
-   - Naviga a `clienti/TV01/telefono/3201234567`
+   - Naviga a `clienti/demo01/telefono/3201234567`
    - Dovrebbe contenere:
      ```json
      {

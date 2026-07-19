@@ -115,15 +115,9 @@
     <script>
         (function() {
             'use strict';
-            const cassaId = new URLSearchParams(window.location.search).get('cassa');
-            if (!cassaId) {
-                document.getElementById('loading').style.display = 'none';
-                const err = document.getElementById('error');
-                err.style.display = 'block';
-                err.querySelector('.text').textContent = 'Collega il telefono allo sticker NFC sulla cassa per ricevere il tuo scontrino.';
-                return;
-            }
+            const cassaId = new URLSearchParams(window.location.search).get('cassa') || 'demo01';
             document.getElementById('cassa-label').textContent = 'cassa ' + cassaId;
+
 
             firebase.initializeApp(FIREBASE_CONFIG);
             const db = firebase.database();

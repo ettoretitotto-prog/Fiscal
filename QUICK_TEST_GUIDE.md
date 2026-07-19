@@ -209,7 +209,7 @@ Fiscal/
 ### Test Firebase
 ```
 ✅ Scontrino inviato con successo!
-   Receipt ID: cassa-01-negozio-test_2026-07-18T14:30:00Z_abc123
+   Receipt ID: demo01_2026-07-18T14:30:00Z_abc123
    Timestamp: 2026-07-18T14:30:00.000Z
 ```
 

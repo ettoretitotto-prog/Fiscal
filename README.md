@@ -13,10 +13,10 @@ Questo MVP connette una cassa (POS o tablet) a un dispositivo cliente (NFC o URL
 
 1. **Tap NFC del Cliente:**
    Il cliente tocca lo sticker NFC che lo indirizza a:
-   `https://fiscal-9a0c8.web.app/?cassa=TV01`
+   `https://fiscal-9a0c8.web.app/?cassa=demo01`
 
 2. **In ascolto (onSnapshot / value):**
-   La pagina si apre e si mette in ascolto in tempo reale su Firebase sul nodo `scontrini` per la cassa `TV01` dove lo scontrino è `UNCLAIMED` e il timestamp non è più vecchio di 45 secondi.
+   La pagina si apre e si mette in ascolto in tempo reale su Firebase sul nodo `scontrini` per la cassa `demo01` dove lo scontrino è `UNCLAIMED` e il timestamp non è più vecchio di 45 secondi.
 
 3. **Stampa della Cassa (POST):**
    La cassa effettua una POST a `/api/receipt` con il JSON dello scontrino. Il backend Python lo memorizza su Firebase impostando il server timestamp e lo stato `UNCLAIMED`.
@@ -38,6 +38,6 @@ Questo MVP connette una cassa (POS o tablet) a un dispositivo cliente (NFC o URL
    ```bash
    python main.py
    ```
-4. Apri l'app cliente: `http://localhost:8000/?cassa=TV01`
-5. Apri la cassa demo: `http://localhost:8000/cassa.html?cassa=TV01`
+4. Apri l'app cliente: `http://localhost:8000/?cassa=demo01`
+5. Apri la cassa demo: `http://localhost:8000/cassa.html?cassa=demo01`
 6. Aggiungi prodotti nella cassa, clicca "Invia scontrino" e guardalo apparire istantaneamente sul cliente!

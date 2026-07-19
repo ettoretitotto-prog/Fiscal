@@ -17,7 +17,7 @@ Testare il sistema completo (frontend + backend + Firebase) senza chip NFC fisic
 ## 🎯 Test 1: Verifica Frontend Online
 
 ### Step 1: Accedi al sito
-1. Apri https://fiscal-9a0c8.web.app/?cassa=TV01
+1. Apri https://fiscal-9a0c8.web.app/?cassa=demo01
 2. Dovrebbe apparire uno spinner: "In attesa del tuo scontrino digitale..."
 3. Verifica che il CSS sia caricato (tema scuro con oro)
 
@@ -41,7 +41,7 @@ Testare il sistema completo (frontend + backend + Firebase) senza chip NFC fisic
 2. Dovrebbe apparire un form per inserire i dati dello scontrino
 
 ### Step 2: Compila il form
-1. **Cassa ID**: `TV01`
+1. **Cassa ID**: `demo01`
 2. **Nome Negozio**: `Negozio Test`
 3. **Articoli**: Clicca "Aggiungi Articolo"
    - Nome: `Caffè`
@@ -59,7 +59,7 @@ Testare il sistema completo (frontend + backend + Firebase) senza chip NFC fisic
 3. Vai a "Realtime Database"
 4. Espandi `scontrini`
 5. Dovrebbe apparire un nuovo record con:
-   - `cassa_id`: "TV01"
+   - `cassa_id`: "demo01"
    - `status`: "UNCLAIMED"
    - `timestamp`: numero grande (millisecondi)
    - `data`: {...} (i dati dello scontrino)
@@ -74,7 +74,7 @@ Testare il sistema completo (frontend + backend + Firebase) senza chip NFC fisic
 ## 🎯 Test 3: Ricevi lo Scontrino (Simulazione NFC)
 
 ### Step 1: Apri il link del cliente
-1. In una **nuova scheda**, apri https://fiscal-9a0c8.web.app/?cassa=TV01
+1. In una **nuova scheda**, apri https://fiscal-9a0c8.web.app/?cassa=demo01
 2. Dovrebbe ancora mostrare lo spinner (sta cercando uno scontrino UNCLAIMED)
 
 ### Step 2: Attendi il match
@@ -115,7 +115,7 @@ Testare il sistema completo (frontend + backend + Firebase) senza chip NFC fisic
 ### Step 3: Verifica su Firebase Console
 1. Torna a Firebase Console
 2. Vai a "Realtime Database"
-3. Espandi `clienti` → `TV01` → `instagram`
+3. Espandi `clienti` → `demo01` → `instagram`
 4. Dovrebbe apparire un record `mario_rossi` con:
    - `instagram_handle`: "mario_rossi"
    - `primo_contatto`: timestamp
@@ -146,7 +146,7 @@ Testare il sistema completo (frontend + backend + Firebase) senza chip NFC fisic
 2. Il campo di testo dovrebbe essere vuoto
 
 ### Step 4: Verifica su Firebase Console
-1. Vai a `clienti` → `TV01` → `telefono`
+1. Vai a `clienti` → `demo01` → `telefono`
 2. Dovrebbe apparire un record `3201234567` con:
    - `telefono`: "3201234567" (solo cifre)
    - `primo_contatto`: timestamp
@@ -165,11 +165,11 @@ Testare il sistema completo (frontend + backend + Firebase) senza chip NFC fisic
 
 ### Step 1: Genera un nuovo scontrino
 1. Torna a https://fiscal-9a0c8.web.app/cassa.html
-2. Compila il form di nuovo (stessa cassa TV01, articoli diversi)
+2. Compila il form di nuovo (stessa cassa demo01, articoli diversi)
 3. Clicca "Invia Scontrino"
 
 ### Step 2: Ricevi il nuovo scontrino
-1. Apri una nuova scheda: https://fiscal-9a0c8.web.app/?cassa=TV01
+1. Apri una nuova scheda: https://fiscal-9a0c8.web.app/?cassa=demo01
 2. Dovrebbe apparire il nuovo scontrino
 
 ### Step 3: Compila il form con lo stesso Instagram handle
@@ -179,7 +179,7 @@ Testare il sistema completo (frontend + backend + Firebase) senza chip NFC fisic
 4. Clicca "Seguimi per offerte"
 
 ### Step 4: Verifica su Firebase Console
-1. Vai a `clienti` → `TV01` → `instagram` → `mario_rossi`
+1. Vai a `clienti` → `demo01` → `instagram` → `mario_rossi`
 2. Verifica che:
    - `primo_contatto`: **rimane invariato** (stesso timestamp di prima)
    - `ultimo_contatto`: **è aggiornato** (nuovo timestamp)
@@ -197,7 +197,7 @@ Testare il sistema completo (frontend + backend + Firebase) senza chip NFC fisic
 
 ### Step 1: Tenta di inserire un numero troppo corto
 1. Genera un nuovo scontrino
-2. Ricevilo (apri il link ?cassa=TV01)
+2. Ricevilo (apri il link ?cassa=demo01)
 3. Clicca tab "Telefono"
 4. Inserisci: `123` (solo 3 cifre)
 5. Clicca "Contattami"
@@ -225,7 +225,7 @@ Testare il sistema completo (frontend + backend + Firebase) senza chip NFC fisic
 5. Clicca "Seguimi per offerte"
 
 ### Step 2: Verifica su Firebase Console
-1. Vai a `clienti` → `TV01` → `instagram`
+1. Vai a `clienti` → `demo01` → `instagram`
 2. Dovrebbe apparire un record `mario_rossi` (minuscolo, senza @)
 3. Non dovrebbe apparire `@MARIO_ROSSI` o `MARIO_ROSSI`
 
@@ -244,11 +244,11 @@ Testare il sistema completo (frontend + backend + Firebase) senza chip NFC fisic
 3. Nota l'ora esatta
 
 ### Step 2: Attendi 45 secondi
-1. Apri https://fiscal-9a0c8.web.app/?cassa=TV01
+1. Apri https://fiscal-9a0c8.web.app/?cassa=demo01
 2. Dovrebbe apparire lo scontrino (entro 45 secondi)
 
 ### Step 3: Attendi altri 10 secondi (totale 55 secondi)
-1. Apri una nuova scheda: https://fiscal-9a0c8.web.app/?cassa=TV01
+1. Apri una nuova scheda: https://fiscal-9a0c8.web.app/?cassa=demo01
 2. Dovrebbe mostrare lo spinner (scontrino scaduto)
 3. Non dovrebbe apparire lo scontrino
 
@@ -266,12 +266,12 @@ Testare il sistema completo (frontend + backend + Firebase) senza chip NFC fisic
 2. Compila il form e clicca "Invia Scontrino"
 
 ### Step 2: Primo cliente riceve lo scontrino
-1. Apri https://fiscal-9a0c8.web.app/?cassa=TV01
+1. Apri https://fiscal-9a0c8.web.app/?cassa=demo01
 2. Dovrebbe apparire lo scontrino
 3. Compila il form Instagram: `@cliente1`
 
 ### Step 3: Secondo cliente NON vede lo scontrino
-1. In una nuova scheda, apri https://fiscal-9a0c8.web.app/?cassa=TV01
+1. In una nuova scheda, apri https://fiscal-9a0c8.web.app/?cassa=demo01
 2. Dovrebbe mostrare lo spinner (scontrino già CLAIMED)
 3. Non dovrebbe apparire lo scontrino del primo cliente
 
@@ -316,7 +316,7 @@ Se tutti i test passano:
 
 1. **Programmazione NFC**: Programma i chip NFC con l'URL
    - Usa l'app "NFC Tools" (iOS/Android)
-   - Scrivi: `https://fiscal-9a0c8.web.app/?cassa=TV01`
+   - Scrivi: `https://fiscal-9a0c8.web.app/?cassa=demo01`
 
 2. **Deploy Backend**: Se non l'hai già fatto, segui `BACKEND_DEPLOYMENT_GUIDE.md`
 
@@ -331,7 +331,7 @@ Se tutti i test passano:
 ### Problema: Lo scontrino non appare
 **Soluzione**:
 1. Verifica che lo scontrino sia stato creato su Firebase Console
-2. Verifica che il `cassa_id` sia lo stesso (TV01)
+2. Verifica che il `cassa_id` sia lo stesso (demo01)
 3. Verifica che il timestamp sia recente (meno di 45 secondi fa)
 4. Apri la console del browser (F12) e cerca errori
 

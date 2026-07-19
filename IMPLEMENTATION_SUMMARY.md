@@ -88,7 +88,7 @@ clienti/
 
 ## 🔄 Flusso UX Completo
 
-1. **Cliente scansiona NFC** → riceve URL con `?cassa=TV01`
+1. **Cliente scansiona NFC** → riceve URL con `?cassa=demo01`
 2. **App carica** → mostra spinner "In attesa del tuo scontrino digitale..."
 3. **Scontrino arriva** → viene renderizzato e marcato CLAIMED
 4. **Form appare** → "📱 Rimani in contatto" con tab Instagram/Telefono
@@ -124,7 +124,7 @@ clienti/
 ```
 scontrini/
   {receipt_id}/
-    cassa_id: "TV01"
+    cassa_id: "demo01"
     timestamp: 1720777200000
     status: "CLAIMED"
     data: {...}
@@ -134,7 +134,7 @@ scontrini/
 ### Nodo `clienti` (NUOVO)
 ```
 clienti/
-  TV01/
+  demo01/
     instagram/
       mario_rossi/
         instagram_handle: "mario_rossi"

@@ -29,7 +29,7 @@
 ```
 scontrini/
   {receipt_id}/
-    register_id: "cassa-01-negozio-x"
+    register_id: "demo01"
     timestamp: 1720777200000
     status: "UNCLAIMED"
     data: {
@@ -56,7 +56,7 @@ Crea il file `config.json`:
 
 ```json
 {
-  "register_id": "cassa-01-negozio-test",
+  "register_id": "demo01",
   "store_name": "Negozio Test",
   "firebase": {
     "databaseURL": "https://fiscal-9a0c8-default-rtdb.europe-west1.firebasedatabase.app"
@@ -102,7 +102,7 @@ const admin = require('firebase-admin');
 // ============================================================================
 
 let CONFIG = {
-    register_id: 'cassa-01-negozio-test',
+    register_id: 'demo01',
     store_name: 'Negozio Test',
     firebase: {
         databaseURL: 'https://fiscal-9a0c8-default-rtdb.europe-west1.firebasedatabase.app'

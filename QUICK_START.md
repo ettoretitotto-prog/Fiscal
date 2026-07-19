@@ -17,7 +17,7 @@ Puoi testare il sistema **adesso** senza aspettare il deploy del backend:
 1. Apri https://fiscal-9a0c8.web.app/cassa.html
 2. Compila il form dello scontrino
 3. Clicca "Invia Scontrino"
-4. Apri https://fiscal-9a0c8.web.app/?cassa=TV01 in un'altra scheda
+4. Apri https://fiscal-9a0c8.web.app/?cassa=demo01 in un'altra scheda
 5. Dovrebbe apparire lo scontrino
 6. Compila il form Instagram/Telefono
 7. Verifica su Firebase Console che i dati siano salvati
@@ -43,11 +43,11 @@ Quando sei pronto a usare i chip NFC fisici:
 1. Scarica l'app "NFC Tools" (iOS o Android)
 2. Apri l'app e seleziona "Scrivi"
 3. Aggiungi un record "URL/URI"
-4. Inserisci: `https://fiscal-9a0c8.web.app/?cassa=TV01`
+4. Inserisci: `https://fiscal-9a0c8.web.app/?cassa=demo01`
 5. Clicca "Scrivi" e avvicina il chip NFC
 6. Fatto! Il chip è programmato
 
-**Nota**: Cambia `TV01` con l'ID della tua cassa
+**Nota**: Cambia `demo01` con l'ID della tua cassa
 
 ---
 
@@ -71,7 +71,7 @@ Quando sei pronto a usare i chip NFC fisici:
 | URL | Descrizione |
 |-----|-------------|
 | https://fiscal-9a0c8.web.app | Sito principale |
-| https://fiscal-9a0c8.web.app/?cassa=TV01 | Scontrino cliente (cassa TV01) |
+| https://fiscal-9a0c8.web.app/?cassa=demo01 | Scontrino cliente (cassa demo01) |
 | https://fiscal-9a0c8.web.app/cassa.html | Pagina cassa (genera scontrini) |
 | https://console.firebase.google.com | Firebase Console (monitora dati) |
 
@@ -83,7 +83,7 @@ Quando sei pronto a usare i chip NFC fisici:
 ```
 1. Apri https://fiscal-9a0c8.web.app/cassa.html
 2. Compila il form:
-   - Cassa ID: TV01
+   - Cassa ID: demo01
    - Nome Negozio: Test
    - Articoli: Caffè (1x €2.50)
 3. Clicca "Invia Scontrino"
@@ -91,7 +91,7 @@ Quando sei pronto a usare i chip NFC fisici:
 
 ### Passo 2: Ricevi lo scontrino
 ```
-1. Apri https://fiscal-9a0c8.web.app/?cassa=TV01
+1. Apri https://fiscal-9a0c8.web.app/?cassa=demo01
 2. Dovrebbe apparire lo scontrino
 ```
 
@@ -108,7 +108,7 @@ Quando sei pronto a usare i chip NFC fisici:
 ```
 1. Apri https://console.firebase.google.com
 2. Vai a Realtime Database
-3. Espandi clienti → TV01 → instagram
+3. Espandi clienti → demo01 → instagram
 4. Dovrebbe apparire mario_rossi con i dati
 ```
 
@@ -120,7 +120,7 @@ Quando sei pronto a usare i chip NFC fisici:
 ```
 scontrini/
   {receipt_id}/
-    cassa_id: "TV01"
+    cassa_id: "demo01"
     timestamp: 1720777200000
     status: "UNCLAIMED" | "CLAIMED"
     data: {...}
@@ -129,7 +129,7 @@ scontrini/
 ### Clienti (Persistenti)
 ```
 clienti/
-  TV01/
+  demo01/
     instagram/
       mario_rossi/
         instagram_handle: "mario_rossi"
@@ -222,7 +222,7 @@ clienti/
 **Q: Lo scontrino non appare**
 A: Verifica che:
 1. Lo scontrino sia stato creato su Firebase Console
-2. Il `cassa_id` sia lo stesso (TV01)
+2. Il `cassa_id` sia lo stesso (demo01)
 3. Il timestamp sia recente (meno di 45 secondi fa)
 
 **Q: Il form contatti non appare**

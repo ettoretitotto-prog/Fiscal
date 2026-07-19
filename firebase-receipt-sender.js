@@ -33,8 +33,9 @@ try {
 // ============================================================================
 
 let CONFIG = {
-    register_id: 'cassa-01-negozio-test',
+    register_id: 'demo01',
     store_name: 'Negozio Test',
+
     firebase: {
         databaseURL: 'https://fiscal-9a0c8-default-rtdb.europe-west1.firebasedatabase.app'
     },

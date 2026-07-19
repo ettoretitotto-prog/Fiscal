@@ -10,7 +10,7 @@ Il backend serve **SOLO** per generare gli scontrini da inviare a Firebase.
 - Apri https://fiscal-9a0c8.web.app/cassa.html
 - Compila il form e clicca "Invia Scontrino"
 - Lo scontrino viene salvato su Firebase
-- Il cliente lo riceve su https://fiscal-9a0c8.web.app/?cassa=TV01
+- Il cliente lo riceve su https://fiscal-9a0c8.web.app/?cassa=demo01
 
 **Vantaggi:**
 - Nessun deploy necessario
@@ -61,7 +61,7 @@ Fai il deploy su PythonAnywhere **SOLO QUANDO**:
 ```
 1. Apri https://fiscal-9a0c8.web.app/cassa.html
 2. Compila il form:
-   - Cassa ID: TV01
+   - Cassa ID: demo01
    - Nome Negozio: Negozio Test
    - Articoli: Caffè (1x €2.50)
 3. Clicca "Invia Scontrino"
@@ -69,7 +69,7 @@ Fai il deploy su PythonAnywhere **SOLO QUANDO**:
 
 ### Step 2: Ricevi lo scontrino
 ```
-1. Apri https://fiscal-9a0c8.web.app/?cassa=TV01
+1. Apri https://fiscal-9a0c8.web.app/?cassa=demo01
 2. Dovrebbe apparire lo scontrino
 ```
 
@@ -86,7 +86,7 @@ Fai il deploy su PythonAnywhere **SOLO QUANDO**:
 ```
 1. Apri https://console.firebase.google.com
 2. Vai a Realtime Database
-3. Espandi clienti → TV01 → instagram
+3. Espandi clienti → demo01 → instagram
 4. Dovrebbe apparire mario_rossi con i dati
 ```
 

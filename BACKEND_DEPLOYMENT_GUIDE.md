@@ -99,7 +99,7 @@ pip install fastapi uvicorn firebase-admin
    curl -X POST https://tuousername.pythonanywhere.com/api/receipt \
      -H "Content-Type: application/json" \
      -d '{
-       "cassa_id": "TV01",
+       "cassa_id": "demo01",
        "store_name": "Test Store",
        "items": [{"name": "Prodotto", "qty": 1, "price": 10.00}],
        "total": 12.20,
@@ -114,12 +114,12 @@ pip install fastapi uvicorn firebase-admin
 ### Metodo 1: Usa cassa.html per generare scontrini
 1. Apri https://fiscal-9a0c8.web.app/cassa.html
 2. Compila il form:
-   - **Cassa ID**: TV01
+   - **Cassa ID**: demo01
    - **Nome Negozio**: Negozio Test
    - **Articoli**: Aggiungi prodotti
    - **Totale**: Calcolato automaticamente
 3. Clicca "Invia Scontrino"
-4. Subito dopo, apri https://fiscal-9a0c8.web.app/?cassa=TV01
+4. Subito dopo, apri https://fiscal-9a0c8.web.app/?cassa=demo01
 5. Dovrebbe apparire lo scontrino che hai appena creato
 6. Compila il form Instagram/Telefono per testare la raccolta contatti
 
@@ -129,7 +129,7 @@ pip install fastapi uvicorn firebase-admin
 curl -X POST https://tuousername.pythonanywhere.com/api/receipt \
   -H "Content-Type: application/json" \
   -d '{
-    "cassa_id": "TV01",
+    "cassa_id": "demo01",
     "store_name": "Negozio Test",
     "items": [
       {"name": "Caffè", "qty": 1, "price": 2.50},
@@ -139,11 +139,11 @@ curl -X POST https://tuousername.pythonanywhere.com/api/receipt \
     "tax_id": "IT00000000000"
   }'
 
-# Poi accedi a: https://fiscal-9a0c8.web.app/?cassa=TV01
+# Poi accedi a: https://fiscal-9a0c8.web.app/?cassa=demo01
 ```
 
 ### Metodo 3: Simula NFC con un link
-1. Crea un link: `https://fiscal-9a0c8.web.app/?cassa=TV01`
+1. Crea un link: `https://fiscal-9a0c8.web.app/?cassa=demo01`
 2. Apri il link sul tuo telefono
 3. Genera uno scontrino da cassa.html
 4. Ricarica il link sul telefono
@@ -155,7 +155,7 @@ curl -X POST https://tuousername.pythonanywhere.com/api/receipt \
 
 Dopo il deploy, avrai:
 
-- **Frontend (Scontrino Cliente)**: https://fiscal-9a0c8.web.app/?cassa=TV01
+- **Frontend (Scontrino Cliente)**: https://fiscal-9a0c8.web.app/?cassa=demo01
 - **Frontend (Cassa)**: https://fiscal-9a0c8.web.app/cassa.html
 - **Backend API**: https://tuousername.pythonanywhere.com/api/receipt
 - **Database**: Firebase Realtime Database (gestito da Firebase)
