@@ -76,7 +76,11 @@
          #save-receipt-feedback { text-align: center; font-size: 0.8rem; color: rgba(100,200,100,0.8); margin-top: 8px; display: none; }
          #save-receipt-feedback.show { display: block; animation: fadeIn 0.4s ease forwards; }
          #save-receipt-feedback.error-text { color: rgba(255,100,100,0.8); }
+
+         /* Forza lo stato "risolto" (no animazioni/opacità parziali) durante lo screenshot */
+         .capturing, .capturing * { animation: none !important; transition: none !important; opacity: 1 !important; transform: none !important; }
      </style>
+
 
 </head>
 <body>
@@ -219,43 +223,53 @@
                     contactForm.style.display = 'none';
                     saveBtn.style.display = 'none';
 
-                    html2canvas(receiptEl, { backgroundColor: '#1a1a2e', scale: 2 }).then(function(canvas) {
+                    // Forza lo stato finale (no animazioni/opacità parziali) prima dello screenshot
+                    receiptEl.classList.add('capturing');
+
+                    function restoreUI() {
+                        receiptEl.classList.remove('capturing');
                         contactForm.style.display = prevContactDisplay;
                         saveBtn.style.display = prevBtnDisplay;
                         saveBtn.disabled = false;
                         saveBtn.textContent = '💾 Salva scontrino';
+                    }
 
-                        const dt = new Date();
-                        const dateStr = dt.getFullYear() + '' + String(dt.getMonth()+1).padStart(2,'0') + String(dt.getDate()).padStart(2,'0') + '_' + String(dt.getHours()).padStart(2,'0') + String(dt.getMinutes()).padStart(2,'0');
-                        const fileName = 'scontrino_' + cassaId + '_' + dateStr + '.png';
+                    // Piccolo delay per garantire che il reflow/repaint sia completato
+                    // prima che html2canvas catturi il DOM
+                    setTimeout(function() {
+                        html2canvas(receiptEl, { backgroundColor: '#1a1a2e', scale: 2 }).then(function(canvas) {
+                            restoreUI();
 
-                        canvas.toBlob(function(blob) {
-                            const url = URL.createObjectURL(blob);
-                            const link = document.createElement('a');
-                            link.href = url;
-                            link.download = fileName;
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                            setTimeout(function() { URL.revokeObjectURL(url); }, 2000);
+                            const dt = new Date();
+                            const dateStr = dt.getFullYear() + '' + String(dt.getMonth()+1).padStart(2,'0') + String(dt.getDate()).padStart(2,'0') + '_' + String(dt.getHours()).padStart(2,'0') + String(dt.getMinutes()).padStart(2,'0');
+                            const fileName = 'scontrino_' + cassaId + '_' + dateStr + '.png';
 
-                            feedback.textContent = '✓ Scontrino salvato';
-                            feedback.classList.remove('error-text');
-                            feedback.classList.add('show');
+                            canvas.toBlob(function(blob) {
+                                const url = URL.createObjectURL(blob);
+                                const link = document.createElement('a');
+                                link.href = url;
+                                link.download = fileName;
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                                setTimeout(function() { URL.revokeObjectURL(url); }, 2000);
+
+                                feedback.textContent = '✓ Scontrino salvato';
+                                feedback.classList.remove('error-text');
+                                feedback.classList.add('show');
+                                setTimeout(function() { feedback.classList.remove('show'); }, 3000);
+                            });
+                        }).catch(function(error) {
+                            console.error('Errore nella generazione dello screenshot:', error);
+                            restoreUI();
+
+                            feedback.textContent = '⚠ Errore nel salvataggio. Riprova.';
+                            feedback.classList.add('show', 'error-text');
                             setTimeout(function() { feedback.classList.remove('show'); }, 3000);
                         });
-                    }).catch(function(error) {
-                        console.error('Errore nella generazione dello screenshot:', error);
-                        contactForm.style.display = prevContactDisplay;
-                        saveBtn.style.display = prevBtnDisplay;
-                        saveBtn.disabled = false;
-                        saveBtn.textContent = '💾 Salva scontrino';
-
-                        feedback.textContent = '⚠ Errore nel salvataggio. Riprova.';
-                        feedback.classList.add('show', 'error-text');
-                        setTimeout(function() { feedback.classList.remove('show'); }, 3000);
-                    });
+                    }, 100);
                 });
+
             }
             initSaveReceiptButton();
 
