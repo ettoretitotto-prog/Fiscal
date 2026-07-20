@@ -6,6 +6,7 @@
     <title>Scontrino Digitale</title>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script src="/firebase-config.js?v=1"></script>
     <style>
         * { box-sizing: border-box; }
@@ -66,7 +67,17 @@
          .contact-feedback { text-align: center; font-size: 0.85rem; color: rgba(100,200,100,0.8); margin-top: 10px; display: none; }
          .contact-feedback.show { display: block; animation: fadeIn 0.4s ease forwards; }
          .contact-error { color: rgba(255,100,100,0.8); }
+
+         /* Save Receipt Button */
+         #save-receipt-btn { display: none; width: 100%; margin-top: 18px; padding: 12px 14px; background: rgba(255,215,0,0.1); border: 1px solid rgba(255,215,0,0.3); border-radius: 10px; color: #f5b342; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: all 0.3s ease; align-items: center; justify-content: center; gap: 8px; }
+         #save-receipt-btn.show { display: flex; animation: fadeIn 0.6s ease forwards; }
+         #save-receipt-btn:hover { background: rgba(255,215,0,0.18); border-color: rgba(255,215,0,0.5); }
+         #save-receipt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+         #save-receipt-feedback { text-align: center; font-size: 0.8rem; color: rgba(100,200,100,0.8); margin-top: 8px; display: none; }
+         #save-receipt-feedback.show { display: block; animation: fadeIn 0.4s ease forwards; }
+         #save-receipt-feedback.error-text { color: rgba(255,100,100,0.8); }
      </style>
+
 </head>
 <body>
     <div class="card">
@@ -105,7 +116,11 @@
                 <button class="contact-submit" id="contact-submit">Seguimi per offerte</button>
                 <div class="contact-feedback" id="contact-feedback">✓ Grazie! Ti contatteremo presto</div>
             </div>
+            <!-- NUOVO: Pulsante per salvare lo scontrino sul dispositivo -->
+            <button id="save-receipt-btn">💾 Salva scontrino</button>
+            <div id="save-receipt-feedback"></div>
         </div>
+
         <div id="error">
             <div class="icon">⚠️</div>
             <div class="text" id="error-text">Link non valido</div>
@@ -182,7 +197,68 @@
                 
                 // NUOVO: Mostra il form di raccolta contatti
                 initContactForm();
+
+                // NUOVO: Mostra il pulsante di salvataggio scontrino
+                document.getElementById('save-receipt-btn').classList.add('show');
             }
+
+            // NUOVO: Salvataggio scontrino come immagine PNG sul dispositivo del cliente
+            function initSaveReceiptButton() {
+                const saveBtn = document.getElementById('save-receipt-btn');
+                const feedback = document.getElementById('save-receipt-feedback');
+                const receiptEl = document.getElementById('receipt');
+                const contactForm = document.getElementById('contact-form');
+
+                saveBtn.addEventListener('click', function() {
+                    saveBtn.disabled = true;
+                    saveBtn.textContent = '⏳ Generazione in corso...';
+
+                    // Nasconde temporaneamente form contatti e bottone stesso dallo screenshot
+                    const prevContactDisplay = contactForm.style.display;
+                    const prevBtnDisplay = saveBtn.style.display;
+                    contactForm.style.display = 'none';
+                    saveBtn.style.display = 'none';
+
+                    html2canvas(receiptEl, { backgroundColor: '#1a1a2e', scale: 2 }).then(function(canvas) {
+                        contactForm.style.display = prevContactDisplay;
+                        saveBtn.style.display = prevBtnDisplay;
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = '💾 Salva scontrino';
+
+                        const dt = new Date();
+                        const dateStr = dt.getFullYear() + '' + String(dt.getMonth()+1).padStart(2,'0') + String(dt.getDate()).padStart(2,'0') + '_' + String(dt.getHours()).padStart(2,'0') + String(dt.getMinutes()).padStart(2,'0');
+                        const fileName = 'scontrino_' + cassaId + '_' + dateStr + '.png';
+
+                        canvas.toBlob(function(blob) {
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.href = url;
+                            link.download = fileName;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            setTimeout(function() { URL.revokeObjectURL(url); }, 2000);
+
+                            feedback.textContent = '✓ Scontrino salvato';
+                            feedback.classList.remove('error-text');
+                            feedback.classList.add('show');
+                            setTimeout(function() { feedback.classList.remove('show'); }, 3000);
+                        });
+                    }).catch(function(error) {
+                        console.error('Errore nella generazione dello screenshot:', error);
+                        contactForm.style.display = prevContactDisplay;
+                        saveBtn.style.display = prevBtnDisplay;
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = '💾 Salva scontrino';
+
+                        feedback.textContent = '⚠ Errore nel salvataggio. Riprova.';
+                        feedback.classList.add('show', 'error-text');
+                        setTimeout(function() { feedback.classList.remove('show'); }, 3000);
+                    });
+                });
+            }
+            initSaveReceiptButton();
+
             
             // NUOVO: Gestione form contatti
             let currentContactType = 'instagram';
