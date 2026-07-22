@@ -18,7 +18,7 @@ const path = require('path');
 
 const CONFIG = {
     // Parole chiave per identificare il totale (case-insensitive)
-    TOTAL_KEYWORDS: ['totale', 'total', 'importo', 'amount', 'dovuto', 'da pagare'],
+    TOTAL_KEYWORDS: ['totale', 'total', 'importo', 'amount', 'dovuto', 'da pagare', 'tot', 'documento'],
     
     // Parole chiave per identificare righe da ignorare (riepiloghi/tasse/pagamenti)
     IGNORE_KEYWORDS: [
@@ -135,6 +135,31 @@ function extractTotal(text) {
                 };
             }
         }
+    }
+    
+    // ======================================================================
+    // FALLBACK: nessuna riga keyword ha matchato.
+    // Cerca l'ultimo importo in formato "€ X.XX" o "X.XX" in TUTTO il testo,
+    // prendendo il valore più probabile di totale (l'ultimo numero con €).
+    // ======================================================================
+    const allPrices = [];
+    for (const line of lines) {
+        const match = line.match(CONFIG.PRICE_REGEX);
+        if (match) {
+            const total = normalizeNumber(match[1]);
+            if (total !== null) {
+                allPrices.push({
+                    total,
+                    line_raw: line.trim()
+                });
+            }
+        }
+    }
+    
+    if (allPrices.length > 0) {
+        // Prendi l'ultimo importo - è probabilmente il totale
+        const last = allPrices[allPrices.length - 1];
+        return last;
     }
     
     return null;

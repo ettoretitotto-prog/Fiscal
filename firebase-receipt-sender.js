@@ -336,32 +336,35 @@ async function sendReceipt(normalizedReceipt) {
         log(`Invio ricevuta: totale €${normalizedReceipt.total || 'N/A'}`, 'SEND');
         
         // ------------------------------------------------------------------
-        // GUARDIANO DI SICUREZZA: non salvare mai su Firebase un documento
-        // con testo grezzo vuoto o totale non valido (N/A/null/NaN).
-        // Protegge da frammenti di stampa incompleti (es. job di stampa
-        // spezzati da RedMon/dal gestionale) anche in casi non previsti
-        // a monte dal watcher.
+        // GUARDIANO DI SICUREZZA: scarta SOLO se raw_text è vuoto.
+        // Se raw_text esiste ma il totale non è stato parsato (N/A/null),
+        // la ricevuta viene comunque inviata come fallback con raw_text
+        // e total=null, così arriva al telefono e non viene persa.
         // ------------------------------------------------------------------
         const rawText = normalizedReceipt.raw_text !== undefined
             ? normalizedReceipt.raw_text
             : normalizedReceipt.rawText;
         const hasEmptyRawText = rawText !== undefined && String(rawText).trim().length === 0;
+        
+        if (hasEmptyRawText) {
+            log(`⚠️  Ricevuta scartata dal guardiano finale: raw_text vuoto`, 'DISCARD');
+            return {
+                success: false,
+                discarded: true,
+                reason: 'raw_text vuoto'
+            };
+        }
+        
         const total = normalizedReceipt.total;
         const hasInvalidTotal = total === undefined
             || total === null
             || total === 'N/A'
             || Number.isNaN(Number(total));
         
-        if (hasEmptyRawText || hasInvalidTotal) {
-            const reason = hasEmptyRawText
-                ? 'raw_text vuoto'
-                : 'totale non valido (N/A)';
-            log(`⚠️  Ricevuta scartata dal guardiano finale: ${reason}`, 'DISCARD');
-            return {
-                success: false,
-                discarded: true,
-                reason
-            };
+        // Se il totale non è valido ma raw_text esiste, invia comunque come fallback
+        if (hasInvalidTotal) {
+            log(`⚠️  Totale non parsato (N/A), invio comunque come fallback con raw_text`, 'FALLBACK');
+            normalizedReceipt.fallback = true;
         }
         
         // Aggiungi il register_id se non presente
