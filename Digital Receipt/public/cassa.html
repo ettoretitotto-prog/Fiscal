@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Cassa Demo — Scontrino Digitale</title>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <script src="/firebase-config.js?v=1"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f1a;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            padding: 16px;
+        }
+        .card {
+            background: #1a1a2e;
+            border-radius: 20px;
+            padding: 28px 24px;
+            max-width: 420px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,215,0,0.08);
+        }
+        h1 {
+            color: #f5b342;
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin: 0 0 4px;
+            text-align: center;
+        }
+        .subtitle {
+            color: rgba(255,255,255,0.3);
+            font-size: 0.7rem;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .cassa-id-badge {
+            display: inline-block;
+            background: rgba(245,179,66,0.1);
+            color: #f5b342;
+            font-size: 0.75rem;
+            padding: 4px 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+        .menu-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .menu-item {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 12px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            text-align: center;
+        }
+        .menu-item:active {
+            transform: scale(0.96);
+            background: rgba(245,179,66,0.08);
+        }
+        .menu-item .name {
+            color: rgba(255,255,255,0.8);
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        .menu-item .price {
+            color: rgba(255,255,255,0.4);
+            font-size: 0.75rem;
+            margin-top: 2px;
+        }
+        .cart-title {
+            color: rgba(255,255,255,0.4);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 8px;
+        }
+        .cart-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            font-size: 0.85rem;
+        }
+        .cart-item .name { color: rgba(255,255,255,0.7); }
+        .cart-item .qty { color: rgba(255,255,255,0.3); margin-left: 8px; }
+        .cart-item .line-total { color: rgba(255,255,255,0.6); }
+        .cart-item .remove {
+            color: rgba(255,80,80,0.5);
+            cursor: pointer;
+            margin-left: 8px;
+            font-size: 0.8rem;
+        }
+        .cart-total {
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #f5b342;
+            padding-top: 10px;
+            margin-top: 6px;
+            border-top: 2px solid rgba(245,179,66,0.15);
+        }
+        .send-btn {
+            width: 100%;
+            margin-top: 16px;
+            padding: 16px;
+            border: none;
+            border-radius: 14px;
+            background: #f5b342;
+            color: #0f0f1a;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .send-btn:active { transform: scale(0.97); opacity: 0.8; }
+        .send-btn:disabled {
+            background: rgba(255,255,255,0.08);
+            color: rgba(255,255,255,0.2);
+            cursor: not-allowed;
+        }
+        .status {
+            text-align: center;
+            margin-top: 12px;
+            font-size: 0.75rem;
+            color: rgba(255,255,255,0.3);
+        }
+        .status.ok { color: #4ade80; }
+        .status.pending { color: #f5b342; }
+        .divider {
+            border: none;
+            border-top: 1px dashed rgba(255,255,255,0.06);
+            margin: 16px 0;
+        }
+        .demo-links {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .demo-links a {
+            flex: 1;
+            text-align: center;
+            color: rgba(255,255,255,0.25);
+            font-size: 0.65rem;
+            text-decoration: none;
+            padding: 6px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .demo-links a:hover {
+            background: rgba(255,255,255,0.04);
+            color: rgba(255,255,255,0.5);
+        }
+        .empty-cart {
+            color: rgba(255,255,255,0.15);
+            font-size: 0.8rem;
+            text-align: center;
+            padding: 16px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🧾 Cassa Demo</h1>
+        <div class="subtitle">Simulatore POS per presentazioni</div>
+
+        <div style="text-align:center;">
+            <span class="cassa-id-badge" id="cassa-id-badge">cassa: demo01</span>
+        </div>
+
+        <div class="menu-grid" id="menu-grid">
+            <div class="menu-item" data-name="Espresso" data-price="1.20">
+                <div class="name">☕ Espresso</div>
+                <div class="price">€ 1.20</div>
+            </div>
+            <div class="menu-item" data-name="Cornetto" data-price="1.50">
+                <div class="name">🥐 Cornetto</div>
+                <div class="price">€ 1.50</div>
+            </div>
+            <div class="menu-item" data-name="Acqua 0.5L" data-price="1.00">
+                <div class="name">💧 Acqua 0.5L</div>
+                <div class="price">€ 1.00</div>
+            </div>
+            <div class="menu-item" data-name="Cappuccino" data-price="1.50">
+                <div class="name">☕ Cappuccino</div>
+                <div class="price">€ 1.50</div>
+            </div>
+            <div class="menu-item" data-name="Succo Arancia" data-price="2.50">
+                <div class="name">🍊 Succo Arancia</div>
+                <div class="price">€ 2.50</div>
+            </div>
+            <div class="menu-item" data-name="Brioche" data-price="2.00">
+                <div class="name">🥐 Brioche</div>
+                <div class="price">€ 2.00</div>
+            </div>
+        </div>
+
+        <hr class="divider" />
+
+        <div class="cart-title">🛒 Scontrino</div>
+        <div id="cart-container">
+            <div class="empty-cart">Aggiungi articoli dal menu</div>
+        </div>
+        <div class="cart-total">
+            <span>Totale</span>
+            <span id="total-display">€ 0.00</span>
+        </div>
+
+        <button class="send-btn" id="send-btn" disabled>Invia scontrino al cliente</button>
+        <div class="status" id="status">Pronto</div>
+
+        <hr class="divider" />
+
+        <div class="demo-links">
+            <a href="/?cassa=demo01" target="_blank">📱 Cliente</a>
+            <a href="#" onclick="resetCassa()">🔄 Reset</a>
+            <a href="/cassa.html?cassa=demo02" target="_blank">➕ Altra cassa</a>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            'use strict';
+
+            const cassaId = new URLSearchParams(window.location.search).get('cassa') || 'demo01';
+            document.getElementById('cassa-id-badge').textContent = 'cassa: ' + cassaId;
+
+            firebase.initializeApp(FIREBASE_CONFIG);
+            const db = firebase.database();
+
+            let cart = [];
+
+            document.querySelectorAll('.menu-item').forEach(function(el) {
+                el.addEventListener('click', function() {
+                    const name = this.dataset.name;
+                    const price = parseFloat(this.dataset.price);
+                    const existing = cart.find(function(item) { return item.name === name; });
+                    if (existing) {
+                        existing.qty += 1;
+                    } else {
+                        cart.push({ name: name, qty: 1, price: price });
+                    }
+                    renderCart();
+                });
+            });
+
+            function renderCart() {
+                const container = document.getElementById('cart-container');
+                if (cart.length === 0) {
+                    container.innerHTML = '<div class="empty-cart">Aggiungi articoli dal menu</div>';
+                } else {
+                    let html = '';
+                    cart.forEach(function(item, index) {
+                        const lineTotal = item.qty * item.price;
+                        html += '<div class="cart-item">' +
+                            '<span class="name">' + esc(item.name) + '</span>' +
+                            '<span>' +
+                                '<span class="qty">' + item.qty + 'x</span>' +
+                                '<span class="line-total"> € ' + lineTotal.toFixed(2) + '</span>' +
+                                '<span class="remove" data-index="' + index + '">✕</span>' +
+                            '</span>' +
+                        '</div>';
+                    });
+                    container.innerHTML = html;
+
+                    container.querySelectorAll('.remove').forEach(function(el) {
+                        el.addEventListener('click', function() {
+                            const idx = parseInt(this.dataset.index);
+                            cart.splice(idx, 1);
+                            renderCart();
+                        });
+                    });
+                }
+
+                const total = cart.reduce(function(sum, item) {
+                    return sum + item.qty * item.price;
+                }, 0);
+                document.getElementById('total-display').textContent = '€ ' + total.toFixed(2);
+                document.getElementById('send-btn').disabled = cart.length === 0;
+                document.getElementById('status').textContent = cart.length > 0 ? 'Pronto per inviare' : 'Aggiungi articoli';
+                document.getElementById('status').className = 'status' + (cart.length > 0 ? ' pending' : '');
+            }
+
+            document.getElementById('send-btn').addEventListener('click', function() {
+                if (cart.length === 0) return;
+
+                const total = cart.reduce(function(sum, item) {
+                    return sum + item.qty * item.price;
+                }, 0);
+
+                const items = [];
+                cart.forEach(function(item) {
+                    items.push({
+                        name: item.name,
+                        qty: item.qty,
+                        price: item.price
+                    });
+                });
+
+                const receipt = {
+                    cassa_id: cassaId,
+                    store_name: 'Punto Vendita — ' + cassaId,
+                    items: items,
+                    total: parseFloat(total.toFixed(2)),
+                    tax_id: 'IT01234567890',
+                    timestamp: Date.now()
+                };
+
+                const status = document.getElementById('status');
+                status.textContent = '⏳ Invio in corso...';
+                status.className = 'status pending';
+                document.getElementById('send-btn').disabled = true;
+
+                const receipt_id = Math.random().toString(36).substring(2, 15);
+                
+                db.ref('scontrini/' + receipt_id).set({
+                    cassa_id: cassaId,
+                    timestamp: firebase.database.ServerValue.TIMESTAMP,
+                    status: "UNCLAIMED",
+                    data: receipt,
+                    receipt_id: receipt_id
+                }).then(function() {
+                    status.textContent = '✅ Scontrino inviato! Il cliente lo riceve in tempo reale.';
+                    status.className = 'status ok';
+                    cart = [];
+                    renderCart();
+                    setTimeout(function() {
+                        document.getElementById('send-btn').disabled = false;
+                    }, 2000);
+                }).catch(function(error) {
+                    status.textContent = '❌ Errore invio: ' + error.message;
+                    status.className = 'status';
+                    document.getElementById('send-btn').disabled = false;
+                });
+            });
+
+            window.resetCassa = function() {
+                cart = [];
+                renderCart();
+                document.getElementById('status').textContent = 'Carrello svuotato';
+                document.getElementById('status').className = 'status';
+            };
+
+            function esc(str) {
+                var d = document.createElement('div');
+                d.textContent = str;
+                return d.innerHTML;
+            }
+
+            renderCart();
+        })();
+    </script>
+</body>
+</html>

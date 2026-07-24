@@ -53,11 +53,19 @@ Questo MVP connette una cassa (POS o tablet) a un dispositivo cliente (NFC o URL
 
 ## Test rapido su hosting (senza backend)
 
-1. Apri `https://fiscal-9a0c8.web.app/cassa.html`
-2. Compila il form dello scontrino e clicca "Invia scontrino"
-3. Apri `https://fiscal-9a0c8.web.app/?cassa=demo01` in un'altra scheda/dispositivo
-4. Lo scontrino appare istantaneamente; compila (opzionalmente) il form Instagram/Telefono
-5. Verifica su Firebase Console (Realtime Database) che scontrino e contatto siano stati salvati
+1. Esegui il build della UI cliente:
+   ```bash
+   npm --prefix "Digital Receipt" run build
+   ```
+2. Esegui il deploy hosting:
+   ```bash
+   firebase deploy --only hosting
+   ```
+3. Apri `https://fiscal-9a0c8.web.app/cassa.html`
+4. Compila il form dello scontrino e clicca "Invia scontrino"
+5. Apri `https://fiscal-9a0c8.web.app/?cassa=demo01` in un'altra scheda/dispositivo
+6. Lo scontrino appare istantaneamente; compila (opzionalmente) il form Instagram/Telefono
+7. Verifica su Firebase Console (Realtime Database) che scontrino e contatto siano stati salvati
 
 ## Programmazione chip NFC
 

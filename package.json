@@ -4,7 +4,8 @@
   "description": "Questo MVP connette una cassa (POS o tablet) a un dispositivo cliente (NFC o URL statico) in tempo reale tramite **Firebase Realtime Database**.",
   "main": "capture-service.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "ocr": "node scripts/ocr.js"
   },
   "keywords": [],
   "author": "",
@@ -12,6 +13,7 @@
   "type": "commonjs",
   "dependencies": {
     "firebase-admin": "^14.2.0",
-    "iconv-lite": "^0.7.3"
+    "iconv-lite": "^0.7.3",
+    "tesseract.js": "^2.1.5"
   }
 }
