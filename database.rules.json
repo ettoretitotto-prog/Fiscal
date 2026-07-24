@@ -13,6 +13,12 @@
       "$cassa": {
         ".read": false,
         ".write": false,
+        "$entry": {
+          ".read": false,
+          // allow creating a simple contact entry under clienti/$cassa/$entryId
+          ".write": "!data.exists() && newData.hasChildren(['cassa_id','timestamp']) && newData.child('cassa_id').isString() && newData.child('timestamp').isNumber()",
+          ".validate": "newData.hasChildren(['cassa_id','timestamp']) && newData.child('cassa_id').isString() && newData.child('timestamp').isNumber()"
+        },
         "instagram": {
           ".read": false,
           ".write": false,
