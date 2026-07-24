@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { getApp, getApps, initializeApp } from "firebase/app";
-import { getDatabase, onValue, query, ref, orderByChild, limitToLast, runTransaction } from "firebase/database";
+import { getDatabase, onValue, query, ref, orderByChild, limitToLast, runTransaction, push, set } from "firebase/database";
 import { Check, Download, Share2, Coffee, Phone, Instagram } from "lucide-react";
 import html2canvas from "html2canvas";
 
@@ -209,6 +209,11 @@ export default function App() {
   const [saved, setSaved] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [phone, setPhone] = useState("");
+  const [instagramHandle, setInstagramHandle] = useState("");
+  const [contactSaved, setContactSaved] = useState(false);
+  const [contactError, setContactError] = useState<string | null>(null);
+  const [sendingContact, setSendingContact] = useState(false);
   const [activeReceipt, setActiveReceipt] = useState<ReceiptRecord | null>(null);
   const receiptCardRef = useRef<HTMLDivElement | null>(null);
   const cassaId = useMemo(
@@ -493,6 +498,8 @@ export default function App() {
               <input
                 type="tel"
                 placeholder="+39 333 000 0000"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
                 className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
                 style={MONO}
               />
@@ -502,14 +509,55 @@ export default function App() {
               <input
                 type="text"
                 placeholder="@intervalcoffee"
+                value={instagramHandle}
+                onChange={(e) => setInstagramHandle(e.target.value)}
                 className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
                 style={MONO}
               />
             </div>
-            <button className="w-full py-3 rounded-xl bg-foreground text-primary-foreground text-sm font-semibold transition-all duration-150 active:scale-[0.97] hover:bg-foreground/85">
-              Invia 🚀
+            <button
+              className="w-full py-3 rounded-xl bg-foreground text-primary-foreground text-sm font-semibold transition-all duration-150 active:scale-[0.97] hover:bg-foreground/85"
+              onClick={async () => {
+                setContactError(null);
+                setContactSaved(false);
+                if (sendingContact) return;
+                if (!phone && !instagramHandle) {
+                  setContactError("Inserisci almeno telefono o Instagram");
+                  return;
+                }
+                setSendingContact(true);
+                try {
+                  const clientsRef = ref(db, `clienti/${cassaId}`);
+                  const newRef = push(clientsRef);
+                  const payload = {
+                    cassa_id: cassaId,
+                    phone: phone || null,
+                    instagram: instagramHandle || null,
+                    timestamp: Date.now(),
+                    receipt_id: activeReceipt?.receipt_id ?? activeReceipt?.data?.receipt_id ?? null,
+                  };
+                  await set(newRef, payload);
+                  setContactSaved(true);
+                  setPhone("");
+                  setInstagramHandle("");
+                } catch (err) {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  setContactError(msg || "Errore invio contatto");
+                } finally {
+                  setSendingContact(false);
+                }
+              }}
+              disabled={sendingContact}
+            >
+              {sendingContact ? "Invio..." : contactSaved ? "Inviato" : "Invia 🚀"}
             </button>
           </div>
+          {contactError && (
+            <p className="mt-2 text-center text-xs text-red-500">{contactError}</p>
+          )}
+          {contactSaved && (
+            <p className="mt-2 text-center text-xs text-green-500">Contatto inviato, grazie!</p>
+          )}
         </div>
 
       </div>
