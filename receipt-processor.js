@@ -313,7 +313,14 @@ function startTcpServer() {
                     // Usiamo append così più write sequenziali si accumulano fino a quando
                     // il watcher considera il file "stabile".
                     fs.appendFileSync(CONFIG.tcpWatchedFile, data);
-                    
+
+                    // Risposta ACK al client (Tilby): byte 0x06
+                    try {
+                        socket.write(Buffer.from([0x06])); // ACK byte (Ctrl+F)
+                    } catch (ackErr) {
+                        log(`Errore invio ACK a ${remote}: ${ackErr.message}`, 'WARN');
+                    }
+
                     // Preview testuale per il log (limitata)
                     let preview;
                     try {
