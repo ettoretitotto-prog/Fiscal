@@ -340,6 +340,15 @@ function startTcpServer() {
                 }
             });
 
+            // Invia un ACK al client appena si connette per indicare che il
+            // device è pronto (Tilby si aspetta un byte di conferma all'apertura)
+            try {
+                socket.write(Buffer.from([0x06])); // ACK al connect
+                log(`ACK iniziale inviato a ${remote}`, 'TCP');
+            } catch (err) {
+                log(`Errore invio ACK iniziale a ${remote}: ${err.message}`, 'WARN');
+            }
+
             socket.on('end', () => {
                 log(`Connessione chiusa: ${remote}`, 'TCP');
             });
