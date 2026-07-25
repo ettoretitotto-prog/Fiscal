@@ -321,6 +321,13 @@ function startTcpServer() {
                         log(`Errore invio ACK a ${remote}: ${ackErr.message}`, 'WARN');
                     }
 
+                    // Log raw buffer in HEX per debug completo
+                    try {
+                        log(`TCP ${remote} → RAW HEX: ${data.toString('hex')}`, 'TCP');
+                    } catch (hexErr) {
+                        log(`Errore formattazione HEX per ${remote}: ${hexErr.message}`, 'WARN');
+                    }
+
                     // Preview testuale per il log (limitata)
                     let preview;
                     try {
