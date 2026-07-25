@@ -7,6 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const net = require('net');
 const normalizer = require('./receipt-normalizer');
 const sender = require('./firebase-receipt-sender');
 
@@ -23,7 +24,13 @@ const CONFIG = {
     // Sottocartella dove vengono spostati i file già inviati con successo
     // (o messi in coda offline), per non lasciarli nella cartella principale
     // e non farli rileggere dal watcher in futuro.
-    processedDir: './captured_receipts/processed'
+    processedDir: './captured_receipts/processed',
+    // TCP listener per Tilby (ESC/POS)
+    tcpPort: 9100,
+    // Dove scrive la "porta locale" su Windows (usato anche da localport-watcher.js)
+    tcpWatchedFile: 'C:\\FiscalPrintLocalPort\\output.prn',
+    // Quanto del payload loggare (per non saturare i log)
+    tcpLogPreviewLength: 200
 };
 
 
@@ -275,6 +282,81 @@ function createSystemTrayIcon() {
 }
 
 // ============================================================================
+// TCP SERVER (Tilby → output.prn)
+// ============================================================================
+
+function ensureTcpWatchedPathExists() {
+    try {
+        const parentDir = path.dirname(CONFIG.tcpWatchedFile);
+        if (!fs.existsSync(parentDir)) {
+            // Tentativo di creare la cartella (può essere una path Windows come C:\\..., 
+            // su sistemi POSIX creerà una directory con quel nome nel CWD)
+            fs.mkdirSync(parentDir, { recursive: true });
+            log(`Cartella creata per porta locale: ${parentDir}`, 'INIT');
+        }
+    } catch (err) {
+        log(`Impossibile creare la cartella per ${CONFIG.tcpWatchedFile}: ${err.message}`, 'WARN');
+    }
+}
+
+function startTcpServer() {
+    try {
+        ensureTcpWatchedPathExists();
+
+        const server = net.createServer((socket) => {
+            const remote = `${socket.remoteAddress}:${socket.remotePort}`;
+            log(`Nuova connessione TCP da ${remote}`, 'TCP');
+
+            socket.on('data', (data) => {
+                try {
+                    // Scriviamo i dati raw (Buffer) nel file watched usato da localport-watcher
+                    // Usiamo append così più write sequenziali si accumulano fino a quando
+                    // il watcher considera il file "stabile".
+                    fs.appendFileSync(CONFIG.tcpWatchedFile, data);
+                    
+                    // Preview testuale per il log (limitata)
+                    let preview;
+                    try {
+                        // Proviamo a convertire in stringa leggibile, rimuovendo caratteri di controllo
+                        preview = data.toString('utf8').replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '');
+                    } catch (_) {
+                        preview = data.toString('hex');
+                    }
+                    if (preview.length > CONFIG.tcpLogPreviewLength) {
+                        preview = preview.substring(0, CONFIG.tcpLogPreviewLength) + '...';
+                    }
+
+                    log(`TCP ${remote} → scritto ${data.length} byte su ${CONFIG.tcpWatchedFile}`, 'TCP');
+                    log(`TCP ${remote} → preview: ${preview}`, 'TCP');
+                } catch (err) {
+                    log(`Errore scrittura su ${CONFIG.tcpWatchedFile}: ${err.message}`, 'ERROR');
+                }
+            });
+
+            socket.on('end', () => {
+                log(`Connessione chiusa: ${remote}`, 'TCP');
+            });
+
+            socket.on('error', (err) => {
+                log(`Errore socket ${remote}: ${err.message}`, 'ERROR');
+            });
+        });
+
+        server.on('error', (err) => {
+            log(`Errore server TCP: ${err.message}`, 'ERROR');
+        });
+
+        server.listen(CONFIG.tcpPort, () => {
+            log(`Server TCP avviato sulla porta ${CONFIG.tcpPort} - scrive in ${CONFIG.tcpWatchedFile}`, 'TCP');
+        });
+
+        // Non restituamo il server (lo manteniamo in vita), ma registriamo un handler per close se necessario.
+    } catch (err) {
+        log(`Impossibile avviare il server TCP: ${err.message}`, 'ERROR');
+    }
+}
+
+// ============================================================================
 // MAIN
 // ============================================================================
 
@@ -305,6 +387,8 @@ function main() {
     // Avvia il monitoraggio
     watchCaptureDirectory();
 
+    // Avvia il server TCP che riceve ESC/POS da Tilby e scrive in output.prn
+    startTcpServer();
     
     // Avvia il system tray
     createSystemTrayIcon();
