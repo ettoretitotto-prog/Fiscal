@@ -33,8 +33,9 @@ const CONFIG = {
     // essere considerati nomi di prodotto anche se appaiono vicino a prezzi.
     PAYMENT_KEYWORDS: ['contanti','contante','cash','carta','bancomat','visa','mastercard','pagamento','pagato','resto','credito','debito'],
     
-    // Regex per estrarre prezzo (€ o numero con virgola/punto, anche a fine riga con spazi)
-    PRICE_REGEX: /€?\s*(\d+[.,]\d{2})\s*$/,
+    // Regex per estrarre prezzo (accetta simboli euro o artefatti come '¬', o parole 'eur','euro')
+    // Cattura l'ultima occorrenza di un numero con due decimali alla fine della riga.
+    PRICE_REGEX: /(?:[€¬]|eur|euro)?\s*(\d+[.,]\d{2})\s*$/i,
     
     // Regex per estrarre quantità (es. "x1", "x2", "1x", "2 pz")
     QUANTITY_REGEX: /\b(\d+)\s*x\b|\bx\s*(\d+)\b|\b(\d+)\s*(?:pz|pcs|pc)\b/i,
@@ -104,7 +105,26 @@ function preprocessRTF(text) {
     }
 
     try {
-        return iconv.decode(Buffer.from(bytes), 'windows-1252');
+        let decoded = iconv.decode(Buffer.from(bytes), 'windows-1252');
+
+        // Normalize common annoying symbols produced by conversions / OCR:
+        // - non-breaking spaces to normal spaces
+        // - soft hyphen to nothing
+        // - weird '¬' that sometimes appears where € or line-break markers are output
+        decoded = decoded.replace(/\u00A0/g, ' ');
+        decoded = decoded.replace(/\u00AD/g, '');
+        // Replace the '¬' glyph (often produced by some RTF/OCR flows) with the euro symbol
+        // so PRICE_REGEX can recognize amounts like "¬ 44,00".
+        decoded = decoded.replace(/¬/g, '€');
+
+        // Normalize common Mojibake sequences a bit (e.g. smart quotes)
+        decoded = decoded.replace(/[\u2018\u2019\u201A\u201B]/g, "'");
+        decoded = decoded.replace(/[\u201C\u201D\u201E\u201F]/g, '"');
+
+        // Collapse repeated visual separators produced by some captures
+        decoded = decoded.replace(/[_\-]{3,}/g, '-');
+
+        return decoded;
     } catch (err) {
         // fallback: return original with a best-effort replace of \'hh
         return s.replace(/\\'([0-9A-Fa-f]{2})/g, (m, p1) => String.fromCharCode(parseInt(p1,16)));
@@ -152,18 +172,25 @@ function stripEscPosResiduals(text) {
         // lettere singole/punteggiatura di comando (@, t, !, a) seguite da testo,
         // ripetute più volte consecutivamente (es. "@ta!Test" -> "Test").
         cleaned = cleaned.replace(/^([@!]|(?<![a-zA-Z])[a-z](?=[A-Z!@]))+/g, '');
-        
-        // Rimuovi un singolo "!" isolato a inizio riga (separatore/comando), 
+
+        // Rimuovi un singolo "!" isolato a inizio riga (separatore/comando),
         // ma NON se la riga è tutta di separatori tipo "!----" (gestito da riga vuota dopo trim)
         cleaned = cleaned.replace(/^!+/, '');
-        
+
         // Rimuovi prefisso residuo "a" attaccato subito prima di un pattern quantità
         // es. "a1 x Caffe" -> "1 x Caffe"
         cleaned = cleaned.replace(/^a(\d+\s*x\b)/i, '$1');
-        
+
         // Rimuovi prefisso residuo "a" attaccato prima di una parola maiuscola
         // es. "aEURO" -> "EURO"
         cleaned = cleaned.replace(/^a(?=[A-Z])/, '');
+
+        // Remove stray '¬' characters and other isolated separators often introduced
+        // by conversion or OCR. Convert them to space so tokenization works.
+        cleaned = cleaned.replace(/[¬¦|··\u00B6]/g, ' ');
+
+        // Remove runs of non-printable punctuation that confuse parsing
+        cleaned = cleaned.replace(/[^\w\s\p{P}]+/gu, ' ');
         
         return cleaned;
     });

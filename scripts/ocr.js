@@ -8,7 +8,9 @@ async function ocrImage(imagePath) {
     let corePath;
     try {
         const coreResolved = require.resolve('tesseract.js-core/tesseract-core.wasm');
-        corePath = new URL('file://' + coreResolved).toString();
+        // Use URL.pathToFileURL to ensure a valid file:// URL
+        const { pathToFileURL } = require('url');
+        corePath = pathToFileURL(coreResolved).toString();
     } catch (err) {
         // fallback: leave undefined and let tesseract.js try to locate it
         corePath = undefined;
@@ -30,19 +32,30 @@ async function main() {
         process.exit(1);
     }
 
-    const files = fs.readdirSync(screenshotsDir).filter(f => /\.(png|jpe?g|webp)$/i.test(f));
-    for (const f of files) {
-        const p = path.join(screenshotsDir, f);
-        console.log('--- OCR for', f, '---');
+    // Recursively find image files under screenshotsDir
+    function findImages(dir) {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        const imgs = [];
+        for (const e of entries) {
+            const full = path.join(dir, e.name);
+            if (e.isDirectory()) imgs.push(...findImages(full));
+            else if (/\.(png|jpe?g|webp)$/i.test(e.name)) imgs.push(full);
+        }
+        return imgs;
+    }
+
+    const files = findImages(screenshotsDir);
+    for (const p of files) {
+        console.log('--- OCR for', p, '---');
         try {
             const text = await ocrImage(p);
-            console.log(text);
-            // save output
-            const outPath = path.join(__dirname, '..', 'screenshots', f + '.txt');
+            console.log('OCR length:', (text || '').length);
+            // save output next to image file
+            const outPath = p + '.txt';
             fs.writeFileSync(outPath, text, 'utf8');
             console.log('Saved to', outPath);
         } catch (err) {
-            console.error('OCR failed for', f, err);
+            console.error('OCR failed for', p, err);
         }
     }
 }
