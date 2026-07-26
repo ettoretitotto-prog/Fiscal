@@ -262,6 +262,118 @@ function extractTotal(text) {
 }
 
 /**
+ * Estrae il subtotale (se presente) dal testo
+ */
+function extractSubtotal(text) {
+    if (!text) return null;
+    const lines = text.split('\n');
+    for (const line of lines) {
+        const lower = line.toLowerCase();
+        if (/\bsub[\s-]?tot(?:ale|al)?\b/i.test(lower) || lower.includes('subtotale') || lower.includes('subtotal')) {
+            const m = line.match(CONFIG.PRICE_REGEX);
+            if (m) return normalizeNumber(m[1]);
+        }
+    }
+    return null;
+}
+
+/**
+ * Reconcilia gli items estratti confrontandoli col subtotale/totale
+ * Applica semplici heuristics: rimuove items che derivano da payment blocks,
+ * prova a riassociare price-only blocks al prodotto precedente, e, se necessario,
+ * cerca una combinazione di items che corrisponda al subtotale (small subset-sum).
+ */
+function reconcileItems(items, text, reportedTotal) {
+    const result = { items: items.slice(), adjusted: false, reason: null };
+
+    // compute sum
+    const sum = result.items.reduce((s, it) => s + (it.price || 0) * (it.quantity || 1), 0);
+    const subtotal = extractSubtotal(text) || reportedTotal || null;
+
+    if (subtotal === null) {
+        // nothing to reconcile against
+        return result;
+    }
+
+    // If sums match within rounding, ok
+    if (Math.abs(sum - subtotal) < 0.005) return result;
+
+    // Step 1: drop items that clearly contain payment keywords
+    const before = result.items.length;
+    result.items = result.items.filter(it => {
+        const ln = (it.name || '').toLowerCase();
+        return !CONFIG.PAYMENT_KEYWORDS.some(k => ln.includes(k));
+    });
+    if (result.items.length !== before) {
+        result.adjusted = true; result.reason = 'removed_payment_items';
+    }
+
+    const sum2 = result.items.reduce((s, it) => s + (it.price || 0) * (it.quantity || 1), 0);
+    if (Math.abs(sum2 - subtotal) < 0.005) return result;
+
+    // Step 2: try to reassign price-only occurrences: scan text for lines with price
+    const lines = (text || '').split('\n').map(l => l.trim()).filter(Boolean);
+    const priceLines = [];
+    for (let i = 0; i < lines.length; i++) {
+        const l = lines[i];
+        if (CONFIG.PRICE_REGEX.test(l)) priceLines.push({ line: l, index: i });
+    }
+
+    // If there are more price lines than items, try to associate from top-down skipping payment lines
+    if (priceLines.length > result.items.length) {
+        // build candidate items from nearby product-like lines
+        const newItems = [];
+        for (let p of priceLines) {
+            // get price value
+            const m = p.line.match(CONFIG.PRICE_REGEX);
+            const price = m ? normalizeNumber(m[1]) : null;
+            if (price === null) continue;
+            // look backwards for nearest non-payment line with letters
+            let name = null;
+            for (let j = p.index - 1; j >= Math.max(0, p.index - 3); j--) {
+                const cand = lines[j];
+                const lc = cand.toLowerCase();
+                if (CONFIG.PAYMENT_KEYWORDS.some(k => lc.includes(k))) break; // stop if payment encountered
+                if (/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(cand)) { name = cand; break; }
+            }
+            if (name) newItems.push({ name: sanitizeCodeBlockName(name), quantity: 1, price, line_raw: p.line });
+        }
+        if (newItems.length > 0) {
+            // replace items with the new inferred ones and check sum
+            const sumNew = newItems.reduce((s, it) => s + it.price * (it.quantity || 1), 0);
+            if (Math.abs(sumNew - subtotal) < 0.005) {
+                result.items = newItems; result.adjusted = true; result.reason = 'reassociated_prices';
+                return result;
+            }
+        }
+    }
+
+    // Step 3: small subset-sum attempt (only up to N items to avoid expensive compute)
+    const vals = result.items.map(it => Math.round((it.price || 0) * 100));
+    const target = Math.round(subtotal * 100);
+    const N = vals.length;
+    if (N <= 20) {
+        // bitmask search
+        let foundMask = null;
+        const limit = 1 << N;
+        for (let mask = 1; mask < limit; mask++) {
+            let s = 0;
+            for (let i = 0; i < N; i++) if (mask & (1 << i)) s += vals[i];
+            if (s === target) { foundMask = mask; break; }
+        }
+        if (foundMask !== null) {
+            const filtered = [];
+            for (let i = 0; i < N; i++) if (foundMask & (1 << i)) filtered.push(result.items[i]);
+            result.items = filtered; result.adjusted = true; result.reason = 'subset_sum_filtered';
+            return result;
+        }
+    }
+
+    // If nothing matched, return with adjusted flag possibly set earlier
+    return result;
+}
+
+/**
  * Estrae i prodotti dal testo
  * Usa euristiche per identificare righe prodotto (nome + prezzo)
  */
@@ -540,7 +652,14 @@ function normalize(rawText, registerId = null) {
         const total = totalData ? totalData.total : null;
         
         // Estrai i prodotti
-        const items = extractItems(cleanedText);
+            let items = extractItems(cleanedText);
+
+            // Reconcilia items con subtotal/total per correggere errori dovuti a linee di pagamento
+            const reconciliation = reconcileItems(items, cleanedText, total);
+            if (reconciliation.adjusted) {
+                items = reconciliation.items;
+                // Optionally, we could attach a flag to the normalized object indicating reconciliation
+            }
         
         // Crea l'oggetto normalizzato
         const normalized = {
