@@ -165,7 +165,28 @@ function sanitizeCodeBlockName(name) {
         break;
     }
 
-    return tokens.join(' ').replace(/\s{2,}/g, ' ').trim();
+    // Additional token-level cleanup to remove noisy OCR residues while
+    // preserving meaningful words and quoted phrases.
+    const cleanedTokens = tokens.map(tok => {
+        // preserve quoted tokens entirely (but trim surrounding punctuation)
+        if (/^".*"$/.test(tok)) return tok.replace(/^"|"$/g, '');
+
+        // remove non-letter characters (keep accents), remove embedded digits
+        let c = tok.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ\-\"]+/g, '');
+        c = c.replace(/\d+/g, '');
+        c = c.replace(/^[-\"]+|[-\"]+$/g, '');
+        return c;
+    }).filter(c => {
+        if (!c) return false;
+        // keep quoted-like tokens or tokens with at least two letters
+        if (/^".*"$/.test(c)) return true;
+        if (/[A-Za-zÀ-ÖØ-öø-ÿ].*[A-Za-zÀ-ÖØ-öø-ÿ]/.test(c)) return true;
+        // also keep tokens of length >=3 (to preserve short meaningful words)
+        if (c.length >= 3) return true;
+        return false;
+    }).map(c => c.replace(/\s{2,}/g, ' ').trim());
+
+    return cleanedTokens.join(' ').replace(/\s{2,}/g, ' ').trim();
 }
 
 /**
