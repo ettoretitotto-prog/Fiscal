@@ -35,7 +35,8 @@ const CONFIG = {
     
     // Regex per estrarre prezzo (accetta simboli euro o artefatti come '¬', o parole 'eur','euro')
     // Cattura l'ultima occorrenza di un numero con due decimali alla fine della riga.
-    PRICE_REGEX: /(?:[€¬]|eur|euro)?\s*(\d+[.,]\d{2})\s*$/i,
+    // Accept optional spaces between decimal separator and decimals (OCR sometimes inserts a space)
+    PRICE_REGEX: /(?:[€¬]|eur|euro)?\s*(\d+[.,]\s*\d{2})\s*$/i,
     
     // Regex per estrarre quantità (es. "x1", "x2", "1x", "2 pz")
     QUANTITY_REGEX: /\b(\d+)\s*x\b|\bx\s*(\d+)\b|\b(\d+)\s*(?:pz|pcs|pc)\b/i,
@@ -151,6 +152,18 @@ function sanitizeCodeBlockName(name) {
         if (tok.length > 2) return true;
         return false;
     });
+
+    // Remove trailing price tokens accidentally left in the name, e.g. '€ 31,00' or '31.00'
+    while (tokens.length > 0) {
+        const last = tokens[tokens.length - 1];
+        if (/^€?\s*\d+[.,]\s*\d{2}$/.test(last) || /^\d+[.,]\s*\d{2}$/.test(last)) {
+            tokens.pop();
+            continue;
+        }
+        // Also if last token is '€' or common currency artifacts
+        if (/^[€¬]$/.test(last) || /^(eur|euro)$/i.test(last)) { tokens.pop(); continue; }
+        break;
+    }
 
     return tokens.join(' ').replace(/\s{2,}/g, ' ').trim();
 }
@@ -438,6 +451,8 @@ function extractItems(text) {
             buffer = line;
             physBuffer = [line];
         } else {
+            // Heuristic: if the incoming line is noisy (many single-char tokens / OCR artifacts),
+            // still append it but mark as continuation to attempt reconstruction later.
             buffer += ' ' + line;
             physBuffer.push(line);
         }
@@ -550,6 +565,14 @@ function extractItems(text) {
                 priceVal = m2 ? normalizeNumber(m2[1]) : null;
             }
 
+                // Fallback: if priceVal is still null, try to extract using a tolerant fallback
+                if (priceVal === null) {
+                    // search joined segment for any price-like token
+                    const joined = seg.join(' ');
+                    const fallback = joined.match(/(\d+[.,]\s*\d{2})/);
+                    if (fallback) priceVal = normalizeNumber(fallback[1]);
+                }
+
             // Build product name by joining original physical lines.
             // If the last segment line contains the price, strip the price and include the remaining text.
             const lastLine = seg[seg.length - 1] || '';
@@ -632,6 +655,9 @@ function extractItems(text) {
             .replace(/\b\d+[A-Za-z]\b/g, ' ')
             .replace(/\s{2,}/g, ' ')
             .trim();
+
+        // Additional pass: remove isolated single letters separated by spaces caused by OCR
+        productName = productName.replace(/\b[A-Za-z]\b/g, '').replace(/\s{2,}/g, ' ').trim();
 
         let quantity = 1;
         const quantityMatch = productName.match(CONFIG.QUANTITY_REGEX);
