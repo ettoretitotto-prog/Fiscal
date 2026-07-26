@@ -11,6 +11,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const iconv = require('iconv-lite');
 
 // ============================================================================
 // CONFIGURAZIONE
@@ -27,6 +28,10 @@ const CONFIG = {
         'pagamento', 'resto', 'cambio', 'euro', 'valuta',
         'documento non fiscale', 'sc.nr', 'scontrino n'
     ],
+    
+    // Parole chiave per identificare METODI DI PAGAMENTO / metadata che NON devono
+    // essere considerati nomi di prodotto anche se appaiono vicino a prezzi.
+    PAYMENT_KEYWORDS: ['contanti','contante','cash','carta','bancomat','visa','mastercard','pagamento','pagato','resto','credito','debito'],
     
     // Regex per estrarre prezzo (€ o numero con virgola/punto, anche a fine riga con spazi)
     PRICE_REGEX: /€?\s*(\d+[.,]\d{2})\s*$/,
@@ -58,6 +63,76 @@ function cleanText(text) {
     cleaned = cleaned.trim();
     
     return cleaned;
+}
+
+/**
+ * Preprocess RTF-like content: convert RTF hex escapes (\'hh) to proper
+ * characters using Windows-1252 decoding, normalize common RTF controls
+ * (\par, \line, \tab) to newlines/tabs, and return a UTF-8 string.
+ */
+function preprocessRTF(text) {
+    if (!text || typeof text !== 'string') return text;
+
+    // normalize line controls
+    let s = text.replace(/\\par[d]?/gi, '\n').replace(/\\line/gi, '\n').replace(/\\tab/gi, '\t');
+
+    // Build byte array: when we find \'hh sequences, insert that byte;
+    // otherwise insert the char code of the current character.
+    const bytes = [];
+    for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (ch === '\\' && s[i+1] === "'" && i + 3 < s.length) {
+            const h1 = s[i+2];
+            const h2 = s[i+3];
+            if (/^[0-9A-Fa-f]$/.test(h1) && /^[0-9A-Fa-f]$/.test(h2)) {
+                const hex = h1 + h2;
+                bytes.push(parseInt(hex, 16));
+                i += 3; // skip \'hh
+                continue;
+            }
+        }
+        // For other backslash sequences like \{ or \\ just skip the backslash
+        if (ch === '\\') {
+            // skip until space or non-letter (simple heuristic)
+            let j = i+1;
+            while (j < s.length && /[A-Za-z]/.test(s[j])) j++;
+            // advance and continue (we ignore control word)
+            i = j - 1;
+            continue;
+        }
+        bytes.push(s.charCodeAt(i));
+    }
+
+    try {
+        return iconv.decode(Buffer.from(bytes), 'windows-1252');
+    } catch (err) {
+        // fallback: return original with a best-effort replace of \'hh
+        return s.replace(/\\'([0-9A-Fa-f]{2})/g, (m, p1) => String.fromCharCode(parseInt(p1,16)));
+    }
+}
+
+/**
+ * Sanitize a product name reconstructed from a code-start block.
+ * Removes tiny noisy tokens and preserves words and quoted phrases.
+ */
+function sanitizeCodeBlockName(name) {
+    if (!name || typeof name !== 'string') return '';
+    // normalize whitespace
+    let s = name.replace(/\s+/g, ' ').trim();
+    // remove common stray punctuation sequences
+    s = s.replace(/[\u0000-\u001F]/g, ' ');
+
+    const tokens = s.split(/\s+/).filter(tok => {
+        // keep quoted tokens like "sole"
+        if (/^".*"$/.test(tok) && /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(tok)) return true;
+        // keep tokens that contain at least two letters
+        if (/[A-Za-zÀ-ÖØ-öø-ÿ].*[A-Za-zÀ-ÖØ-öø-ÿ]/.test(tok)) return true;
+        // keep tokens longer than 2 (to preserve words like '150' or 'cm')
+        if (tok.length > 2) return true;
+        return false;
+    });
+
+    return tokens.join(' ').replace(/\s{2,}/g, ' ').trim();
 }
 
 /**
@@ -241,15 +316,46 @@ function extractItems(text) {
 
     // Post-process: unisci blocchi dove il prezzo è stato separato su una riga
     // a parte (es. un blocco con descrizione senza prezzo seguito da un blocco
-    // che contiene solo "00       € 411,00"). Se il blocco precedente non
-    // contiene un prezzo e quello corrente sì, uniscili.
+    // che contiene solo il prezzo). Se il blocco precedente non contiene un
+    // prezzo e quello corrente sì, normalmente li uniamo, ma EVITIAMO di unire
+    // se il blocco precedente sembra essere una riga di pagamento/metadata
+    // (es. "CONTANTI") — in tal caso cerchiamo di associare il prezzo al
+    // prodotto valido più vicino prima del blocco di pagamento.
     for (let i = 1; i < logicalBlocks.length; i++) {
         const prev = logicalBlocks[i - 1];
         const cur = logicalBlocks[i];
         const prevHasPrice = CONFIG.PRICE_REGEX.test(prev.text);
         const curHasPrice = CONFIG.PRICE_REGEX.test(cur.text);
         if (!prevHasPrice && curHasPrice) {
-            // merge
+            const prevLower = (prev.text || '').toLowerCase();
+            const prevIsPayment = CONFIG.PAYMENT_KEYWORDS.some(k => prevLower.includes(k));
+            if (prevIsPayment) {
+                // Try to attach the current price block to the nearest earlier
+                // logical block that looks like a product (has letters and/or price)
+                let attached = false;
+                for (let j = i - 2; j >= 0; j--) {
+                    const candidate = logicalBlocks[j];
+                    // candidate is suitable if it already contains a price (unlikely)
+                    // or if it contains letters (likely a product name)
+                    if (CONFIG.PRICE_REGEX.test(candidate.text) || /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(candidate.text)) {
+                        candidate.text = (candidate.text + ' ' + cur.text).trim();
+                        candidate.physLines = (candidate.physLines || []).concat(cur.physLines || []);
+                        logicalBlocks.splice(i, 1);
+                        attached = true;
+                        break;
+                    }
+                }
+                if (!attached) {
+                    // Couldn't attach: mark prev as payment metadata and drop current price
+                    // (avoid creating a spurious product named 'CONTANTI')
+                    prev._isPayment = true;
+                    logicalBlocks.splice(i, 1);
+                }
+                i--; // adjust index after splice (if splice occurred)
+                continue;
+            }
+
+            // Default: merge as before
             prev.text = (prev.text + ' ' + cur.text).trim();
             prev.physLines = (prev.physLines || []).concat(cur.physLines || []);
             logicalBlocks.splice(i, 1);
@@ -262,6 +368,13 @@ function extractItems(text) {
         const physBlock = block.physLines || [trimmedLine];
 
         if (!trimmedLine) continue;
+
+        // Skip blocks that appear to be payment metadata (e.g. "CONTANTI")
+        const blockLower = (trimmedLine || '').toLowerCase();
+        if (block._isPayment || CONFIG.PAYMENT_KEYWORDS.some(k => blockLower.includes(k))) {
+            // don't treat as item
+            continue;
+        }
 
         // Controlla prima se la riga logica contiene un prezzo: se c'è un prezzo
         // vogliamo processarla anche se contiene parole come "euro" che sono
@@ -309,7 +422,7 @@ function extractItems(text) {
                 nameLines = seg.slice();
             }
             // Join with space to form a single-line product name similar to Danea export
-            const productNameExact = nameLines.join(' ').replace(/\s{2,}/g, ' ').trim();
+                const productNameExact = sanitizeCodeBlockName(nameLines.join(' ').replace(/\s{2,}/g, ' ').trim());
             // Skip pushing empty or non-meaningful names (e.g. just '00')
             if (priceVal !== null && /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(productNameExact)) {
                 items.push({ name: productNameExact, quantity: 1, price: priceVal, line_raw: seg.join(' ') });
@@ -390,6 +503,12 @@ function extractItems(text) {
 
         if (!productName) continue;
 
+        // Guard: if productName contains payment keywords only, skip
+        const productNameLower = (productName || '').toLowerCase();
+        if (CONFIG.PAYMENT_KEYWORDS.some(k => productNameLower.includes(k)) && !/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(productName)) {
+            continue;
+        }
+
         items.push({ name: productName, quantity, price, line_raw: trimmedLine });
     }
 
@@ -409,8 +528,9 @@ function extractItems(text) {
  */
 function normalize(rawText, registerId = null) {
     try {
-        // Pulisci il testo
-        let cleanedText = cleanText(rawText);
+        // Preprocess RTF-like content then clean the resulting text
+        let pre = preprocessRTF(rawText);
+        let cleanedText = cleanText(pre);
         
         // Rimuovi residui di comandi ESC/POS non filtrati (es. "@ta!Test", "a1 x Caffe")
         cleanedText = stripEscPosResiduals(cleanedText);
