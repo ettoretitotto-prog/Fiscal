@@ -49,20 +49,82 @@ const CONFIG = {
 
 /**
  * Pulisce il testo da caratteri di controllo residui
- * Include anche rimozione di \r (carriage return) che Danea Easyfatt produce
- * causando split verticali delle righe.
+ * Include anche processing intelligente di \r (carriage return).
+ * 
+ * Danea Easyfatt usa CR per sovrapporre testo nella stessa riga, ma gli spazi
+ * dopo il CR non devono cancellare i caratteri precedenti non-spazio.
+ * Invece di simulare una stampante termica (che sovrascrive tutto),
+ * uniamo le due parti carattere per carattere: dove la seconda parte ha
+ * uno spazio, preserviamo il carattere della prima parte.
  */
 function cleanText(text) {
     if (!text || typeof text !== 'string') return '';
     
-    // Rimuovi caratteri di controllo (eccetto newline e tab)
-    let cleaned = text.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '');
+    // Rimuovi caratteri di controllo non-CR (eccetto newline e tab)
+    let cleaned = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
     
-    // Rimuovi \r (carriage return) - Danea Easyfatt li usa e causano split verticali
-    cleaned = cleaned.replace(/\r/g, '');
+    // Elabora CR in modo intelligente: CR torna a inizio riga,
+    // ma gli spazi vuoti nella seconda parte non sovrascrivono i caratteri
+    // della prima parte (che vengono preservati).
+    const result = [];
+    let currentLine = '';
     
-    // Rimuovi spazi multipli alla fine delle righe
-    cleaned = cleaned.split('\n').map(line => line.trimEnd()).join('\n');
+    for (let i = 0; i < cleaned.length; i++) {
+        const ch = cleaned[i];
+        const code = cleaned.charCodeAt(i);
+        
+        if (code === 0x0d) {
+            // Check if next char is LF (CR+LF = newline)
+            if (i + 1 < cleaned.length && cleaned.charCodeAt(i + 1) === 0x0a) {
+                // CR+LF: finish current line
+                result.push(currentLine.trimEnd());
+                currentLine = '';
+                i++; // skip LF
+            } else {
+                // CR alone: trova il testo dopo il CR fino al prossimo \n o \r
+                // e uniscilo alla riga corrente senza sovrascrivere con spazi
+                let afterCR = '';
+                let j = i + 1;
+                while (j < cleaned.length && cleaned[j] !== '\n' && cleaned.charCodeAt(j) !== 0x0d) {
+                    afterCR += cleaned[j];
+                    j++;
+                }
+                
+                // Merge: se afterCR ha caratteri non-spazio, sovrascrivi
+                // quelli nella stessa posizione in currentLine
+                if (afterCR.length > 0) {
+                    let merged = currentLine.split('');
+                    for (let k = 0; k < afterCR.length; k++) {
+                        if (k < merged.length) {
+                            // Sovrascrivi SOLO se afterCR[k] non è spazio
+                            // (preserva caratteri significativi della prima parte)
+                            if (afterCR[k] !== ' ') {
+                                merged[k] = afterCR[k];
+                            }
+                        } else {
+                            merged.push(afterCR[k]);
+                        }
+                    }
+                    currentLine = merged.join('');
+                }
+                
+                // Salta il testo afterCR già processato
+                i = j - 1;
+            }
+        } else if (code === 0x0a) {
+            // LF alone: newline
+            result.push(currentLine.trimEnd());
+            currentLine = '';
+        } else {
+            // Regular character
+            currentLine += ch;
+        }
+    }
+    if (currentLine.length > 0) {
+        result.push(currentLine.trimEnd());
+    }
+    
+    cleaned = result.join('\n');
     
     // Rimuovi righe vuote multiple (max 2 newline consecutivi)
     cleaned = cleaned.replace(/\n\n\n+/g, '\n\n');
