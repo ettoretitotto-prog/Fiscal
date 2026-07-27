@@ -776,11 +776,30 @@ function extractItems(text) {
             continue;
         }
 
+        // Extract quantity from the ORIGINAL line_raw (before name cleaning),
+        // so patterns like "2 x Brioche" are correctly parsed even if the
+        // cleaned name no longer contains the "x" separator.
         let quantity = 1;
-        const quantityMatch = productName.match(CONFIG.QUANTITY_REGEX);
+        const quantityMatch = trimmedLine.match(CONFIG.QUANTITY_REGEX);
         if (quantityMatch) {
             quantity = parseInt(quantityMatch[1] || quantityMatch[2] || quantityMatch[3], 10);
-            productName = productName.replace(CONFIG.QUANTITY_REGEX, '').trim();
+        }
+        // Also try to extract quantity from the cleaned productName as fallback
+        if (quantity === 1) {
+            const qm2 = productName.match(CONFIG.QUANTITY_REGEX);
+            if (qm2) {
+                quantity = parseInt(qm2[1] || qm2[2] || qm2[3], 10);
+                productName = productName.replace(CONFIG.QUANTITY_REGEX, '').trim();
+            }
+        }
+        
+        // If quantity > 1 and productName starts with that number, remove it
+        // (e.g. "2 Brioche" -> "Brioche" when quantity=2)
+        if (quantity > 1) {
+            const qtyStr = String(quantity);
+            if (productName.startsWith(qtyStr + ' ')) {
+                productName = productName.substring(qtyStr.length + 1).trim();
+            }
         }
 
         if (!productName) continue;
