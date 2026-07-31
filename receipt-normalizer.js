@@ -26,7 +26,8 @@ const CONFIG = {
         'iva', 'tasse', 'sconto', 'subtotale', 'subtotal', 'imponibile',
         'contanti', 'contante', 'carta', 'bancomat', 'credito', 'debito',
         'pagamento', 'resto', 'cambio', 'euro', 'valuta',
-        'documento non fiscale', 'sc.nr', 'scontrino n'
+        'documento non fiscale', 'sc.nr', 'scontrino n',
+        'test'  // Scontrinoetico scrive "Test 1" come testata
     ],
     
     // Parole chiave per identificare METODI DI PAGAMENTO / metadata che NON devono
@@ -60,15 +61,82 @@ const CONFIG = {
 
 /**
  * Pulisce il testo da caratteri di controllo residui
+ * Include anche processing intelligente di \r (carriage return).
+ * 
+ * Danea Easyfatt usa CR per sovrapporre testo nella stessa riga, ma gli spazi
+ * dopo il CR non devono cancellare i caratteri precedenti non-spazio.
+ * Invece di simulare una stampante termica (che sovrascrive tutto),
+ * uniamo le due parti carattere per carattere: dove la seconda parte ha
+ * uno spazio, preserviamo il carattere della prima parte.
  */
 function cleanText(text) {
     if (!text || typeof text !== 'string') return '';
     
-    // Rimuovi caratteri di controllo (eccetto newline e tab)
-    let cleaned = text.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '');
+    // Rimuovi caratteri di controllo non-CR (eccetto newline e tab)
+    let cleaned = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
     
-    // Rimuovi spazi multipli alla fine delle righe
-    cleaned = cleaned.split('\n').map(line => line.trimEnd()).join('\n');
+    // Elabora CR in modo intelligente: CR torna a inizio riga,
+    // ma gli spazi vuoti nella seconda parte non sovrascrivono i caratteri
+    // della prima parte (che vengono preservati).
+    const result = [];
+    let currentLine = '';
+    
+    for (let i = 0; i < cleaned.length; i++) {
+        const ch = cleaned[i];
+        const code = cleaned.charCodeAt(i);
+        
+        if (code === 0x0d) {
+            // Check if next char is LF (CR+LF = newline)
+            if (i + 1 < cleaned.length && cleaned.charCodeAt(i + 1) === 0x0a) {
+                // CR+LF: finish current line
+                result.push(currentLine.trimEnd());
+                currentLine = '';
+                i++; // skip LF
+            } else {
+                // CR alone: trova il testo dopo il CR fino al prossimo \n o \r
+                // e uniscilo alla riga corrente senza sovrascrivere con spazi
+                let afterCR = '';
+                let j = i + 1;
+                while (j < cleaned.length && cleaned[j] !== '\n' && cleaned.charCodeAt(j) !== 0x0d) {
+                    afterCR += cleaned[j];
+                    j++;
+                }
+                
+                // Merge: se afterCR ha caratteri non-spazio, sovrascrivi
+                // quelli nella stessa posizione in currentLine
+                if (afterCR.length > 0) {
+                    let merged = currentLine.split('');
+                    for (let k = 0; k < afterCR.length; k++) {
+                        if (k < merged.length) {
+                            // Sovrascrivi SOLO se afterCR[k] non è spazio
+                            // (preserva caratteri significativi della prima parte)
+                            if (afterCR[k] !== ' ') {
+                                merged[k] = afterCR[k];
+                            }
+                        } else {
+                            merged.push(afterCR[k]);
+                        }
+                    }
+                    currentLine = merged.join('');
+                }
+                
+                // Salta il testo afterCR già processato
+                i = j - 1;
+            }
+        } else if (code === 0x0a) {
+            // LF alone: newline
+            result.push(currentLine.trimEnd());
+            currentLine = '';
+        } else {
+            // Regular character
+            currentLine += ch;
+        }
+    }
+    if (currentLine.length > 0) {
+        result.push(currentLine.trimEnd());
+    }
+    
+    cleaned = result.join('\n');
     
     // Rimuovi righe vuote multiple (max 2 newline consecutivi)
     cleaned = cleaned.replace(/\n\n\n+/g, '\n\n');
@@ -147,6 +215,7 @@ function preprocessRTF(text) {
 /**
  * Sanitize a product name reconstructed from a code-start block.
  * Removes tiny noisy tokens and preserves words and quoted phrases.
+ * Preserva token numerici significativi (es. "150", "80", "90", "cm", "°").
  */
 function sanitizeCodeBlockName(name) {
     if (!name || typeof name !== 'string') return '';
@@ -156,12 +225,22 @@ function sanitizeCodeBlockName(name) {
     s = s.replace(/[\u0000-\u001F]/g, ' ');
 
     const tokens = s.split(/\s+/).filter(tok => {
-        // keep quoted tokens like "sole"
+        // Skip tokens that are just single punctuation/symbols (unless it's °)
+        if (/^[\.,:;!?\-=+\/\\'"]+$/.test(tok)) return false;
+        // keep quoted tokens like "sole" or "Arcadia"
         if (/^".*"$/.test(tok) && /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(tok)) return true;
         // keep tokens that contain at least two letters
         if (/[A-Za-zÀ-ÖØ-öø-ÿ].*[A-Za-zÀ-ÖØ-öø-ÿ]/.test(tok)) return true;
         // keep tokens longer than 2 (to preserve words like '150' or 'cm')
+        // IMPORTANTE: per Danea, token come "150", "80", "90", "cm" sono significativi
         if (tok.length > 2) return true;
+        // keep single-letter tokens that are units like "cm", "mm", "kg", "°" etc.
+        // Also keep 2-letter tokens (cm, kg, mm, pz)
+        if (tok.length >= 2 && /^[a-zA-Z°0-9]+$/.test(tok)) return true;
+        // keep numeric tokens of any length (preserva misure numeriche)
+        if (/^\d+$/.test(tok)) return true;
+        // keep "°" symbol
+        if (tok === '°') return true;
         return false;
     });
 
@@ -183,6 +262,12 @@ function sanitizeCodeBlockName(name) {
         // preserve quoted tokens entirely (but trim surrounding punctuation)
         if (/^".*"$/.test(tok)) return tok.replace(/^"|"$/g, '');
 
+        // Se il token è puramente numerico (es. "150", "80"), preservalo
+        if (/^\d+$/.test(tok)) return tok;
+        // Se il token è un'unità di misura (cm, mm, kg, pz), preservalo
+        if (/^[a-zA-Z]{1,3}$/.test(tok)) return tok;
+        if (tok === '°') return tok;
+
         // remove non-letter characters (keep accents), remove embedded digits
         let c = tok.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ\-\"]+/g, '');
         c = c.replace(/\d+/g, '');
@@ -195,6 +280,10 @@ function sanitizeCodeBlockName(name) {
         if (/[A-Za-zÀ-ÖØ-öø-ÿ].*[A-Za-zÀ-ÖØ-öø-ÿ]/.test(c)) return true;
         // also keep tokens of length >=3 (to preserve short meaningful words)
         if (c.length >= 3) return true;
+        // keep numeric tokens e misure
+        if (/^\d+$/.test(c)) return true;
+        if (/^[a-zA-Z°]{1,3}$/.test(c)) return true;
+        if (c === '°') return true;
         return false;
     }).map(c => c.replace(/\s{2,}/g, ' ').trim());
 
@@ -217,11 +306,14 @@ function stripEscPosResiduals(text) {
         // Rimuovi sequenze di residui tipici a inizio riga: combinazioni di
         // lettere singole/punteggiatura di comando (@, t, !, a) seguite da testo,
         // ripetute più volte consecutivamente (es. "@ta!Test" -> "Test").
-        cleaned = cleaned.replace(/^([@!]|(?<![a-zA-Z])[a-z](?=[A-Z!@]))+/g, '');
-
-        // Rimuovi un singolo "!" isolato a inizio riga (separatore/comando),
-        // ma NON se la riga è tutta di separatori tipo "!----" (gestito da riga vuota dopo trim)
-        cleaned = cleaned.replace(/^!+/, '');
+        // Cattura sia sequenze alternate (@, t, a, !) sia gruppi di lettere
+        // minuscole seguite da ! (tipo "ta!") che sono residui ESC/POS.
+        cleaned = cleaned.replace(/^([@!]|(?<![a-zA-Z])[a-z](?=[A-Z!@a-z]))+/g, '');
+        // Additional pass: remove sequences of lowercase letters terminated by !
+        // that start the line (e.g. "ta!Test" -> "Test")
+        cleaned = cleaned.replace(/^[a-z]+!/, '');
+        // Remove trailing leftover from @ removal at start
+        cleaned = cleaned.replace(/^[@!]+/, '');
 
         // Rimuovi prefisso residuo "a" attaccato subito prima di un pattern quantità
         // es. "a1 x Caffe" -> "1 x Caffe"
@@ -230,6 +322,9 @@ function stripEscPosResiduals(text) {
         // Rimuovi prefisso residuo "a" attaccato prima di una parola maiuscola
         // es. "aEURO" -> "EURO"
         cleaned = cleaned.replace(/^a(?=[A-Z])/, '');
+
+        // Rimuovi anche "a" prima di "Test" (Scontrinoetico)
+        cleaned = cleaned.replace(/^a(?=[A-Za-z])/, '');
 
         // Remove stray '¬' characters and other isolated separators often introduced
         // by conversion or OCR. Convert them to space so tokenization works.
@@ -516,6 +611,13 @@ function extractItems(text) {
         if (!prevHasPrice && curHasPrice) {
             const prevLower = (prev.text || '').toLowerCase();
             const prevIsPayment = CONFIG.PAYMENT_KEYWORDS.some(k => prevLower.includes(k));
+            // Controlla anche se il blocco precedente è una riga di intestazione
+            // (senza lettere significative, o solo header/test)
+            const prevIsHeader = !/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(prev.text || '') || 
+                                 CONFIG.IGNORE_KEYWORDS.some(k => prevLower.includes(k)) ||
+                                 /^[\d\/\s\-:]+$/.test(prev.text || '');
+            const prevHasLetters = /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(prev.text || '');
+            
             if (prevIsPayment) {
                 // Try to attach the current price block to the nearest earlier
                 // logical block that looks like a product (has letters and/or price)
@@ -541,6 +643,17 @@ function extractItems(text) {
                 i--; // adjust index after splice (if splice occurred)
                 continue;
             }
+            
+            // Se il blocco precedente è intestazione (Test 1, EURO, data, separatori),
+            // NON aggregarlo al prodotto. Invece, se il blocco corrente ha prezzo,
+            // creiamo un nuovo prodotto dal solo blocco corrente (che ha prezzo).
+            if (prevIsHeader && !prevHasLetters) {
+                // Non unire: il blocco corrente (con prezzo) diventa un prodotto a sé
+                // Se il blocco corrente è in realtà un totale/pagamento, verrà filtrato dopo
+                // Non facciamo nulla, i due blocchi rimangono separati
+                // Il blocco corrente ha già prezzo, sarà processato come prodotto
+                continue;
+            }
 
             // Default: merge as before
             prev.text = (prev.text + ' ' + cur.text).trim();
@@ -560,6 +673,26 @@ function extractItems(text) {
         const blockLower = (trimmedLine || '').toLowerCase();
         if (block._isPayment || CONFIG.PAYMENT_KEYWORDS.some(k => blockLower.includes(k))) {
             // don't treat as item
+            continue;
+        }
+        
+        // Skip blocks that contain only IGNORE_KEYWORDS (es. "Test 1", "EURO", date)
+        if (CONFIG.IGNORE_KEYWORDS.some(k => blockLower.includes(k))) {
+            // Se ha un prezzo, potrebbe essere un totale mascherato - lascialo passare
+            // ma solo se non è una riga di solo ignore keywords
+            const hasPrice = CONFIG.PRICE_REGEX.test(trimmedLine);
+            // Se non ha prezzo, è sicuramente da ignorare
+            if (!hasPrice) continue;
+            // Se ha prezzo ma contiene IGNORE_KEYWORDS, controlla se ci sono anche
+            // lettere di nome prodotto significative (es. "EURO" da sola va ignorata anche con prezzo)
+            const hasProductLetters = /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(trimmedLine.replace(CONFIG.PRICE_REGEX, ''));
+            if (!hasProductLetters) continue;
+        }
+
+        // Skip righe che contengono solo numeri/codici senza descrizione prodotto
+        // Es. "nr. 1 del 27/07/2026" o "Pag1."
+        const lineWithoutPrice = trimmedLine.replace(CONFIG.PRICE_REGEX, '').trim();
+        if (!/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(lineWithoutPrice) && lineWithoutPrice.length > 0) {
             continue;
         }
 
@@ -680,6 +813,13 @@ function extractItems(text) {
         // Strip leading dates if present (e.g. "24/07/2026")
         productName = productName.replace(/^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\s*/, '');
 
+        // Remove leading/trailing IGNORE_KEYWORDS from product names (e.g. "Test 1", "EURO")
+        // that got merged from header blocks in Scontrinoetico format.
+        productName = productName.replace(new RegExp('\\b(' + CONFIG.IGNORE_KEYWORDS.join('|') + ')\\b', 'gi'), ' ').replace(/\s{2,}/g, ' ').trim();
+        // Remove leading numbers that look like test/header (e.g. "Test 1" -> "1" remains, remove that too)
+        productName = productName.replace(/^\d+\s*/, '');
+        productName = productName.trim();
+
         // Aggressive cleaning for OCR residues
         productName = productName
             .replace(/\b[A-Za-z]\b/g, ' ')
@@ -690,13 +830,50 @@ function extractItems(text) {
             .trim();
 
         // Additional pass: remove isolated single letters separated by spaces caused by OCR
-        productName = productName.replace(/\b[A-Za-z]\b/g, '').replace(/\s{2,}/g, ' ').trim();
+        // But preserve "cm", "kg" etc. by keeping 2-char words with letters
+        productName = productName.replace(/\b[A-Za-z]\b/g, ' ').replace(/\s{2,}/g, ' ').trim();
+        
+        // Remove isolated single characters that remain after cleaning
+        const nameTokens = productName.split(/\s+/).filter(t => {
+            if (t.length >= 2) return true;
+            if (/^\d+$/.test(t)) return true;
+            if (/^[°'"]$/.test(t)) return true;
+            return false;
+        });
+        productName = nameTokens.join(' ');
+        productName = productName.trim();
+        
+        // If after all cleaning productName is just a single word that is a known
+        // ignore/payment keyword, skip it
+        const pnLower = productName.toLowerCase();
+        if (CONFIG.PAYMENT_KEYWORDS.some(k => pnLower === k) || CONFIG.IGNORE_KEYWORDS.some(k => pnLower === k)) {
+            continue;
+        }
 
+        // Extract quantity from the ORIGINAL line_raw (before name cleaning),
+        // so patterns like "2 x Brioche" are correctly parsed even if the
+        // cleaned name no longer contains the "x" separator.
         let quantity = 1;
-        const quantityMatch = productName.match(CONFIG.QUANTITY_REGEX);
+        const quantityMatch = trimmedLine.match(CONFIG.QUANTITY_REGEX);
         if (quantityMatch) {
             quantity = parseInt(quantityMatch[1] || quantityMatch[2] || quantityMatch[3], 10);
-            productName = productName.replace(CONFIG.QUANTITY_REGEX, '').trim();
+        }
+        // Also try to extract quantity from the cleaned productName as fallback
+        if (quantity === 1) {
+            const qm2 = productName.match(CONFIG.QUANTITY_REGEX);
+            if (qm2) {
+                quantity = parseInt(qm2[1] || qm2[2] || qm2[3], 10);
+                productName = productName.replace(CONFIG.QUANTITY_REGEX, '').trim();
+            }
+        }
+        
+        // If quantity > 1 and productName starts with that number, remove it
+        // (e.g. "2 Brioche" -> "Brioche" when quantity=2)
+        if (quantity > 1) {
+            const qtyStr = String(quantity);
+            if (productName.startsWith(qtyStr + ' ')) {
+                productName = productName.substring(qtyStr.length + 1).trim();
+            }
         }
 
         if (!productName) continue;
