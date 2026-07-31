@@ -40,6 +40,18 @@ const CONFIG = {
     
     // Regex per estrarre quantità (es. "x1", "x2", "1x", "2 pz")
     QUANTITY_REGEX: /\b(\d+)\s*x\b|\bx\s*(\d+)\b|\b(\d+)\s*(?:pz|pcs|pc)\b/i,
+
+    // Checklist / validation patterns used to verify presence of mandatory fields
+    CHECKLIST_PATTERNS: {
+        PIVA_REGEX: /\b\d{11}\b/, // Italian VAT number
+        DATE_REGEX: /\b(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4}|\d{4}-\d{2}-\d{2})\b/, // dates like 24/07/2026 or 2026-07-24
+        TIME_REGEX: /\b\d{1,2}:\d{2}\b/, // hh:mm
+        IVA_RATE_REGEX: /\bIVA\b[^\n\d]*(\d{1,2})%|\b(\d{1,2})\s*%/i,
+        RT_SERIAL_REGEX: /\b(matricola|mat\.?|registratore telematico|registratore)\b[\s:\-]{0,10}([A-Z0-9\-\/]{4,})/i,
+        ADDRESS_HINTS: /\b(via|viale|piazza|p\.?zza|strada|corso|loc\.|localita|km\b)\b/i,
+        DOCUMENT_COMMERCIAL_PHRASE: /documento commerciale di vendita|documento commerciale|documento di vendita/i,
+        SHOP_NAME_HINTS: /\b(s\.r\.l|srl|s\.p\.a|spa|snc|sas|ditta|ristorante|bar|pizzeria|negozio|supermercato)\b/i
+    }
 };
 
 // ============================================================================
@@ -735,7 +747,7 @@ function normalize(rawText, registerId = null) {
                 // Optionally, we could attach a flag to the normalized object indicating reconciliation
             }
         
-        // Crea l'oggetto normalizzato
+        // Crea l'oggetto normalizzato (base)
         const normalized = {
             register_id: registerId,
             timestamp: new Date().toISOString(),
@@ -743,6 +755,25 @@ function normalize(rawText, registerId = null) {
             total,
             items
         };
+
+        // Esegui la validazione della checklist e arricchisci l'output
+        try {
+            const checklist = validateChecklist(normalized);
+            normalized.missing_fields = checklist.missing_fields;
+            normalized.requires_raw_text = checklist.requires_raw_text;
+            normalized.checklist_details = checklist.details;
+
+            // If any required field is missing, ensure raw_text is preserved (fallback behavior)
+            if (checklist.requires_raw_text) {
+                normalized.raw_text = cleanedText; // explicit but already set
+            }
+        } catch (e) {
+            // Non blocchiamo il parsing: log e prosegui
+            console.error('Checklist validation failed:', e && e.message);
+            normalized.missing_fields = [];
+            normalized.requires_raw_text = false;
+            normalized.checklist_details = {};
+        }
         
         return normalized;
         
@@ -829,6 +860,7 @@ module.exports = {
 // Export internals for debugging (not intended for production use)
 module.exports._internals = {
     extractItems,
+    validateChecklist,
     // buildLogicalBlocks: helper to inspect how physical lines are grouped
     buildLogicalBlocks: function(text) {
         const physLines = (text || '').split('\n').map(l => l.trim());
@@ -858,3 +890,78 @@ module.exports._internals = {
         return logicalBlocks;
     }
 };
+
+/**
+ * Valida la checklist richiesta per il documento commerciale.
+ * Restituisce un oggetto { missing_fields: [], requires_raw_text: boolean, details: {} }
+ */
+function validateChecklist(normalized) {
+    const details = {};
+    const missing = [];
+    const text = (normalized.raw_text || '').toString();
+
+    // 1) Shop name / business name: look for common business tokens or uppercase lines
+    const shopName = (() => {
+        if (normalized.shop_name) return normalized.shop_name;
+        // heuristic: first non-empty line that contains letters and either business tokens or all-caps
+        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+        for (let i = 0; i < Math.min(6, lines.length); i++) {
+            const ln = lines[i];
+            if (CONFIG.CHECKLIST_PATTERNS.SHOP_NAME_HINTS.test(ln) || /^[A-Z\s\d\-\.]{4,}$/.test(ln)) return ln;
+        }
+        return null;
+    })();
+    details.shop_name = !!shopName;
+    if (!shopName) missing.push('shop_name');
+
+    // 2) Partita IVA (P.IVA)
+    const pivaMatch = text.match(CONFIG.CHECKLIST_PATTERNS.PIVA_REGEX);
+    details.piva = !!pivaMatch;
+    if (!pivaMatch) missing.push('piva');
+
+    // 3) Address
+    const addressHint = CONFIG.CHECKLIST_PATTERNS.ADDRESS_HINTS.test(text);
+    details.address = addressHint;
+    if (!addressHint) missing.push('address');
+
+    // 4) Date and time
+    const dateMatch = text.match(CONFIG.CHECKLIST_PATTERNS.DATE_REGEX);
+    const timeMatch = text.match(CONFIG.CHECKLIST_PATTERNS.TIME_REGEX);
+    details.date = !!dateMatch;
+    details.time = !!timeMatch;
+    if (!dateMatch) missing.push('date');
+    if (!timeMatch) missing.push('time');
+
+    // 5) Description of what was bought (at least 1 item or items list)
+    const hasItems = Array.isArray(normalized.items) && normalized.items.length > 0;
+    details.items_present = hasItems;
+    if (!hasItems) missing.push('items_description');
+
+    // 6) IVA rates applied (look for % or 'IVA')
+    const ivaMatch = text.match(CONFIG.CHECKLIST_PATTERNS.IVA_RATE_REGEX);
+    details.iva_rates = !!ivaMatch;
+    if (!ivaMatch) missing.push('iva_rates');
+
+    // 7) Total amount
+    details.total = typeof normalized.total === 'number' && !isNaN(normalized.total);
+    if (!details.total) missing.push('total');
+
+    // 8) Payment method
+    const paymentFound = CONFIG.PAYMENT_KEYWORDS.some(k => text.toLowerCase().includes(k));
+    details.payment_method = paymentFound;
+    if (!paymentFound) missing.push('payment_method');
+
+    // 9) Registratore telematico serial/matricola
+    const rtMatch = text.match(CONFIG.CHECKLIST_PATTERNS.RT_SERIAL_REGEX);
+    details.rt_serial = !!rtMatch;
+    if (!rtMatch) missing.push('rt_serial');
+
+    // 10) Phrase 'documento commerciale'
+    const docPhrase = CONFIG.CHECKLIST_PATTERNS.DOCUMENT_COMMERCIAL_PHRASE.test(text);
+    details.document_phrase = docPhrase;
+    if (!docPhrase) missing.push('document_phrase');
+
+    // Build result
+    const requires_raw_text = missing.length > 0;
+    return { missing_fields: missing, requires_raw_text, details };
+}
