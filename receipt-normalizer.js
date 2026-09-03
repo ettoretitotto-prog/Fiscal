@@ -34,10 +34,11 @@ const CONFIG = {
     // essere considerati nomi di prodotto anche se appaiono vicino a prezzi.
     PAYMENT_KEYWORDS: ['contanti','contante','cash','carta','bancomat','visa','mastercard','pagamento','pagato','resto','credito','debito'],
     
-    // Regex per estrarre prezzo (accetta simboli euro o artefatti come '¬', o parole 'eur','euro')
-    // Cattura l'ultima occorrenza di un numero con due decimali alla fine della riga.
-    // Accept optional spaces between decimal separator and decimals (OCR sometimes inserts a space)
-    PRICE_REGEX: /(?:[€¬]|eur|euro)?\s*(\d+[.,]\s*\d{2})\s*$/i,
+    // Regex per estrarre prezzo (accetta simboli euro o artefatti come '¬', o parole 'eur','euro').
+    // Tolleriamo un'eventuale cifra finale spuria introdotta da OCR/RTF (es. 20.001 -> 20.00).
+    PRICE_REGEX: /(?:[€¬]|eur|euro)?\s*(\d+[.,]\s*\d{2})(?:\d)?\s*$/i,
+    PRICE_CANDIDATE_REGEX: /(?:[€¬]|eur|euro)?\s*(\d+[.,]\s*\d{2})(?:\d)?/gi,
+    CODE_LINE_REGEX: /^(?:\d+\s+)?(\d{3,5})\b/,
     
     // Regex per estrarre quantità (es. "x1", "x2", "1x", "2 pz")
     QUANTITY_REGEX: /\b(\d+)\s*x\b|\bx\s*(\d+)\b|\b(\d+)\s*(?:pz|pcs|pc)\b/i,
@@ -155,32 +156,27 @@ function cleanText(text) {
 function preprocessRTF(text) {
     if (!text || typeof text !== 'string') return text;
 
-    // normalize line controls
-    let s = text.replace(/\\par[d]?/gi, '\n').replace(/\\line/gi, '\n').replace(/\\tab/gi, '\t');
+    let s = text;
 
-    // Build byte array: when we find \'hh sequences, insert that byte;
-    // otherwise insert the char code of the current character.
+    const finalReceiptIndex = s.search(/SCONTRINO FINALE:/i);
+    if (finalReceiptIndex >= 0) {
+        const fileSectionIndex = s.search(/\nFILE:/i);
+        s = s.slice(finalReceiptIndex, fileSectionIndex >= 0 ? fileSectionIndex : undefined);
+    }
+
+    s = s.replace(/\\par[d]?/gi, '\n').replace(/\\line/gi, '\n').replace(/\\tab/gi, '\t');
+
     const bytes = [];
     for (let i = 0; i < s.length; i++) {
         const ch = s[i];
-        if (ch === '\\' && s[i+1] === "'" && i + 3 < s.length) {
-            const h1 = s[i+2];
-            const h2 = s[i+3];
+        if (ch === '\\' && s[i + 1] === "'" && i + 3 < s.length) {
+            const h1 = s[i + 2];
+            const h2 = s[i + 3];
             if (/^[0-9A-Fa-f]$/.test(h1) && /^[0-9A-Fa-f]$/.test(h2)) {
-                const hex = h1 + h2;
-                bytes.push(parseInt(hex, 16));
-                i += 3; // skip \'hh
+                bytes.push(parseInt(h1 + h2, 16));
+                i += 3;
                 continue;
             }
-        }
-        // For other backslash sequences like \{ or \\ just skip the backslash
-        if (ch === '\\') {
-            // skip until space or non-letter (simple heuristic)
-            let j = i+1;
-            while (j < s.length && /[A-Za-z]/.test(s[j])) j++;
-            // advance and continue (we ignore control word)
-            i = j - 1;
-            continue;
         }
         bytes.push(s.charCodeAt(i));
     }
@@ -188,27 +184,22 @@ function preprocessRTF(text) {
     try {
         let decoded = iconv.decode(Buffer.from(bytes), 'windows-1252');
 
-        // Normalize common annoying symbols produced by conversions / OCR:
-        // - non-breaking spaces to normal spaces
-        // - soft hyphen to nothing
-        // - weird '¬' that sometimes appears where € or line-break markers are output
         decoded = decoded.replace(/\u00A0/g, ' ');
         decoded = decoded.replace(/\u00AD/g, '');
-        // Replace the '¬' glyph (often produced by some RTF/OCR flows) with the euro symbol
-        // so PRICE_REGEX can recognize amounts like "¬ 44,00".
         decoded = decoded.replace(/¬/g, '€');
-
-        // Normalize common Mojibake sequences a bit (e.g. smart quotes)
         decoded = decoded.replace(/[\u2018\u2019\u201A\u201B]/g, "'");
         decoded = decoded.replace(/[\u201C\u201D\u201E\u201F]/g, '"');
-
-        // Collapse repeated visual separators produced by some captures
         decoded = decoded.replace(/[_\-]{3,}/g, '-');
+        decoded = decoded.replace(/[{}]/g, ' ');
+        decoded = decoded.replace(/\\[a-z]+-?\d*\s?/gi, ' ');
+        decoded = decoded.replace(/\b(?:e?ftab\d*|tightenfactor\d*|ightenfactor\d*|cf\d+|cb\d+|fs\d+|fsmilli\d+|pard|partightenfactor|deftab)\b/gi, ' ');
+        decoded = decoded.replace(/\\/g, ' ');
+        decoded = decoded.replace(/[ \t]{2,}/g, ' ');
+        decoded = decoded.replace(/\n{3,}/g, '\n\n');
 
-        return decoded;
+        return decoded.trim();
     } catch (err) {
-        // fallback: return original with a best-effort replace of \'hh
-        return s.replace(/\\'([0-9A-Fa-f]{2})/g, (m, p1) => String.fromCharCode(parseInt(p1,16)));
+        return s.replace(/\\'([0-9A-Fa-f]{2})/g, (m, p1) => String.fromCharCode(parseInt(p1, 16)));
     }
 }
 
@@ -344,8 +335,54 @@ function stripEscPosResiduals(text) {
  */
 function normalizeNumber(str) {
     if (!str) return null;
-    const num = parseFloat(str.replace(',', '.'));
+    const num = parseFloat(String(str).replace(/\s+/g, '').replace(',', '.'));
     return isNaN(num) ? null : num;
+}
+
+function extractPriceCandidates(text) {
+    if (!text || typeof text !== 'string') return [];
+    const matches = [];
+    const regex = new RegExp(CONFIG.PRICE_CANDIDATE_REGEX.source, CONFIG.PRICE_CANDIDATE_REGEX.flags);
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+        const value = normalizeNumber(match[1]);
+        if (value !== null) {
+            matches.push({ value, token: match[0], start: match.index, end: match.index + match[0].length });
+        }
+    }
+    return matches;
+}
+
+function extractTrailingPrice(text) {
+    const candidates = extractPriceCandidates(text);
+    return candidates.length > 0 ? candidates[candidates.length - 1] : null;
+}
+
+function sanitizeProductCandidate(name) {
+    if (!name || typeof name !== 'string') return '';
+    const codeMatch = name.match(CONFIG.CODE_LINE_REGEX);
+    const code = codeMatch ? codeMatch[1] : '';
+
+    let cleaned = name
+        .replace(CONFIG.PRICE_CANDIDATE_REGEX, ' ')
+        .replace(/\b(?:Subtotale|Totale|IVA\s*\d+%?)\b.*$/i, ' ')
+        .replace(/\b(?:QuantitP|Quantita|Prezzo|Importo|Codice|Descrizione|Destinatario|Vendita al banco|SCONTRINO FINALE)\b/gi, ' ')
+        .replace(/\b(?:Documento creato con|Danea Easyfatt|dimostrativa|Pag\d+)\b.*$/gi, ' ')
+        .replace(/\b\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\b/g, ' ')
+        .replace(/\b(?:e?ftab\d*|tightenfactor\d*|ightenfactor\d*|cf\d+|cb\d+|fs\d+|fsmilli\d+|pard|partightenfactor|deftab)\b/gi, ' ')
+        .replace(/[{}\\]/g, ' ')
+        .replace(/([A-Za-zÀ-ÖØ-öø-ÿ])1(?=\s|$)/g, '$1 ')
+        .replace(/\b\d+\s*[x×]\s*/gi, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+
+    if (code) {
+        cleaned = cleaned.replace(new RegExp(`^${code}\b\s*`), '').trim();
+    }
+
+    cleaned = sanitizeCodeBlockName(cleaned);
+    if (code) cleaned = `${code} ${cleaned}`.trim();
+    return cleaned.trim();
 }
 
 /**
@@ -360,7 +397,8 @@ function extractTotal(text) {
     const exactTotalCandidates = [];
     const genericTotalCandidates = [];
 
-    for (const line of lines) {
+    for (let idx = 0; idx < lines.length; idx++) {
+        const line = lines[idx];
         const lowerLine = line.toLowerCase();
 
         const isSubtotalLine = /\bsub[\s-]?tot(?:ale|al)?\b/i.test(lowerLine);
@@ -368,27 +406,22 @@ function extractTotal(text) {
             continue;
         }
 
-        // Controlla se la riga contiene una parola chiave di totale
-        const hasTotalKeyword = CONFIG.TOTAL_KEYWORDS.some(keyword => 
-            lowerLine.includes(keyword)
-        );
-
+        const hasTotalKeyword = CONFIG.TOTAL_KEYWORDS.some(keyword => lowerLine.includes(keyword));
         if (!hasTotalKeyword) continue;
 
-        // Estrai il prezzo dalla riga
-        const match = line.match(CONFIG.PRICE_REGEX);
-        if (match) {
-            const total = normalizeNumber(match[1]);
-            if (total !== null) {
-                const candidate = {
-                    total,
-                    line_raw: line.trim()
-                };
-                if (/\b(?:totale|total)\b/i.test(lowerLine)) {
-                    exactTotalCandidates.push(candidate);
-                } else {
-                    genericTotalCandidates.push(candidate);
-                }
+        const priceSource = [line, lines[idx + 1] || '', lines[idx + 2] || '']
+            .map(part => extractTrailingPrice(part))
+            .find(Boolean);
+
+        if (priceSource) {
+            const candidate = {
+                total: priceSource.value,
+                line_raw: line.trim()
+            };
+            if (/\b(?:totale|total)\b/i.test(lowerLine)) {
+                exactTotalCandidates.push(candidate);
+            } else {
+                genericTotalCandidates.push(candidate);
             }
         }
     }
@@ -401,22 +434,14 @@ function extractTotal(text) {
         return genericTotalCandidates[genericTotalCandidates.length - 1];
     }
     
-    // ======================================================================
-    // FALLBACK: nessuna riga keyword ha matchato.
-    // Cerca l'ultimo importo in formato "€ X.XX" o "X.XX" in TUTTO il testo,
-    // prendendo il valore più probabile di totale (l'ultimo numero con €).
-    // ======================================================================
     const allPrices = [];
     for (const line of lines) {
-        const match = line.match(CONFIG.PRICE_REGEX);
-        if (match) {
-            const total = normalizeNumber(match[1]);
-            if (total !== null) {
-                allPrices.push({
-                    total,
-                    line_raw: line.trim()
-                });
-            }
+        const trailingPrice = extractTrailingPrice(line);
+        if (trailingPrice) {
+            allPrices.push({
+                total: trailingPrice.value,
+                line_raw: line.trim()
+            });
         }
     }
     
@@ -435,11 +460,14 @@ function extractTotal(text) {
 function extractSubtotal(text) {
     if (!text) return null;
     const lines = text.split('\n');
-    for (const line of lines) {
+    for (let idx = 0; idx < lines.length; idx++) {
+        const line = lines[idx];
         const lower = line.toLowerCase();
         if (/\bsub[\s-]?tot(?:ale|al)?\b/i.test(lower) || lower.includes('subtotale') || lower.includes('subtotal')) {
-            const m = line.match(CONFIG.PRICE_REGEX);
-            if (m) return normalizeNumber(m[1]);
+            const priceSource = [line, lines[idx + 1] || '', lines[idx + 2] || '']
+                .map(part => extractTrailingPrice(part))
+                .find(Boolean);
+            if (priceSource) return priceSource.value;
         }
     }
     return null;
@@ -551,7 +579,6 @@ function extractItems(text) {
     const items = [];
     const physLines = text.split('\n').map(l => l.trim());
 
-    // Build logical blocks by concatenating physical lines until a price is found.
     const logicalBlocks = [];
     let buffer = '';
     let physBuffer = [];
@@ -561,7 +588,6 @@ function extractItems(text) {
         if (!line) continue;
 
         if (codeStartRe.test(line)) {
-            // new product block starts
             if (buffer) {
                 logicalBlocks.push({ text: buffer.trim(), physLines: physBuffer.slice() });
             }
@@ -579,8 +605,6 @@ function extractItems(text) {
             buffer = line;
             physBuffer = [line];
         } else {
-            // Heuristic: if the incoming line is noisy (many single-char tokens / OCR artifacts),
-            // still append it but mark as continuation to attempt reconstruction later.
             buffer += ' ' + line;
             physBuffer.push(line);
         }
@@ -596,13 +620,6 @@ function extractItems(text) {
         logicalBlocks.push({ text: buffer.trim(), physLines: physBuffer.slice() });
     }
 
-    // Post-process: unisci blocchi dove il prezzo è stato separato su una riga
-    // a parte (es. un blocco con descrizione senza prezzo seguito da un blocco
-    // che contiene solo il prezzo). Se il blocco precedente non contiene un
-    // prezzo e quello corrente sì, normalmente li uniamo, ma EVITIAMO di unire
-    // se il blocco precedente sembra essere una riga di pagamento/metadata
-    // (es. "CONTANTI") — in tal caso cerchiamo di associare il prezzo al
-    // prodotto valido più vicino prima del blocco di pagamento.
     for (let i = 1; i < logicalBlocks.length; i++) {
         const prev = logicalBlocks[i - 1];
         const cur = logicalBlocks[i];
@@ -611,21 +628,15 @@ function extractItems(text) {
         if (!prevHasPrice && curHasPrice) {
             const prevLower = (prev.text || '').toLowerCase();
             const prevIsPayment = CONFIG.PAYMENT_KEYWORDS.some(k => prevLower.includes(k));
-            // Controlla anche se il blocco precedente è una riga di intestazione
-            // (senza lettere significative, o solo header/test)
             const prevIsHeader = !/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(prev.text || '') || 
                                  CONFIG.IGNORE_KEYWORDS.some(k => prevLower.includes(k)) ||
                                  /^[\d\/\s\-:]+$/.test(prev.text || '');
             const prevHasLetters = /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(prev.text || '');
             
             if (prevIsPayment) {
-                // Try to attach the current price block to the nearest earlier
-                // logical block that looks like a product (has letters and/or price)
                 let attached = false;
                 for (let j = i - 2; j >= 0; j--) {
                     const candidate = logicalBlocks[j];
-                    // candidate is suitable if it already contains a price (unlikely)
-                    // or if it contains letters (likely a product name)
                     if (CONFIG.PRICE_REGEX.test(candidate.text) || /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(candidate.text)) {
                         candidate.text = (candidate.text + ' ' + cur.text).trim();
                         candidate.physLines = (candidate.physLines || []).concat(cur.physLines || []);
@@ -635,31 +646,21 @@ function extractItems(text) {
                     }
                 }
                 if (!attached) {
-                    // Couldn't attach: mark prev as payment metadata and drop current price
-                    // (avoid creating a spurious product named 'CONTANTI')
                     prev._isPayment = true;
                     logicalBlocks.splice(i, 1);
                 }
-                i--; // adjust index after splice (if splice occurred)
+                i--;
                 continue;
             }
             
-            // Se il blocco precedente è intestazione (Test 1, EURO, data, separatori),
-            // NON aggregarlo al prodotto. Invece, se il blocco corrente ha prezzo,
-            // creiamo un nuovo prodotto dal solo blocco corrente (che ha prezzo).
             if (prevIsHeader && !prevHasLetters) {
-                // Non unire: il blocco corrente (con prezzo) diventa un prodotto a sé
-                // Se il blocco corrente è in realtà un totale/pagamento, verrà filtrato dopo
-                // Non facciamo nulla, i due blocchi rimangono separati
-                // Il blocco corrente ha già prezzo, sarà processato come prodotto
                 continue;
             }
 
-            // Default: merge as before
             prev.text = (prev.text + ' ' + cur.text).trim();
             prev.physLines = (prev.physLines || []).concat(cur.physLines || []);
             logicalBlocks.splice(i, 1);
-            i--; // stay on same index for next iteration
+            i--;
         }
     }
 
@@ -669,78 +670,55 @@ function extractItems(text) {
 
         if (!trimmedLine) continue;
 
-        // Skip blocks that appear to be payment metadata (e.g. "CONTANTI")
         const blockLower = (trimmedLine || '').toLowerCase();
         if (block._isPayment || CONFIG.PAYMENT_KEYWORDS.some(k => blockLower.includes(k))) {
-            // don't treat as item
             continue;
         }
         
-        // Skip blocks that contain only IGNORE_KEYWORDS (es. "Test 1", "EURO", date)
         if (CONFIG.IGNORE_KEYWORDS.some(k => blockLower.includes(k))) {
-            // Se ha un prezzo, potrebbe essere un totale mascherato - lascialo passare
-            // ma solo se non è una riga di solo ignore keywords
             const hasPrice = CONFIG.PRICE_REGEX.test(trimmedLine);
-            // Se non ha prezzo, è sicuramente da ignorare
             if (!hasPrice) continue;
-            // Se ha prezzo ma contiene IGNORE_KEYWORDS, controlla se ci sono anche
-            // lettere di nome prodotto significative (es. "EURO" da sola va ignorata anche con prezzo)
             const hasProductLetters = /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(trimmedLine.replace(CONFIG.PRICE_REGEX, ''));
             if (!hasProductLetters) continue;
         }
 
-        // Skip righe che contengono solo numeri/codici senza descrizione prodotto
-        // Es. "nr. 1 del 27/07/2026" o "Pag1."
         const lineWithoutPrice = trimmedLine.replace(CONFIG.PRICE_REGEX, '').trim();
         if (!/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(lineWithoutPrice) && lineWithoutPrice.length > 0) {
             continue;
         }
 
-        // Controlla prima se la riga logica contiene un prezzo: se c'è un prezzo
-        // vogliamo processarla anche se contiene parole come "euro" che sono
-        // normalmente nella lista di IGNORE_KEYWORDS (evita di scartare righe valide).
-        // If physical block contains lines that start with a product code (e.g. "0029"),
-        // extract each product by scanning physBlock for code-starting lines and collecting
-        // following lines until a price is found. This preserves the original Danea layout.
-        const codeStartRe = /^\s*\d{2,5}\b/;
         let handled = false;
         for (let i = 0; i < physBlock.length; i++) {
             const pl = physBlock[i];
             if (!codeStartRe.test(pl)) continue;
 
-            // collect segment from this line until next code line or end
             const seg = [pl];
             let priceLine = null;
             for (let j = i + 1; j < physBlock.length; j++) {
                 const l = physBlock[j];
                 seg.push(l);
                 if (CONFIG.PRICE_REGEX.test(l)) { priceLine = l; break; }
-                if (codeStartRe.test(l)) break; // next product starts
+                if (codeStartRe.test(l)) break;
             }
 
-            // If still no priceLine, try to find price in joined segment
             if (!priceLine) {
                 const joinedSeg = seg.join(' ');
-                const m = joinedSeg.match(CONFIG.PRICE_REGEX);
-                if (m) priceLine = m[0];
+                const trailingPrice = extractTrailingPrice(joinedSeg);
+                if (trailingPrice) priceLine = trailingPrice.token;
             }
 
             let priceVal = null;
             if (priceLine) {
-                const m2 = priceLine.match(CONFIG.PRICE_REGEX);
-                priceVal = m2 ? normalizeNumber(m2[1]) : null;
+                const trailingPrice = extractTrailingPrice(priceLine);
+                priceVal = trailingPrice ? trailingPrice.value : null;
             }
 
-                // Fallback: if priceVal is still null, try to extract using a tolerant fallback
-                if (priceVal === null) {
-                    // search joined segment for any price-like token
-                    const joined = seg.join(' ');
-                    const fallback = joined.match(/(\d+[.,]\s*\d{2})/);
-                    if (fallback) priceVal = normalizeNumber(fallback[1]);
-                }
+            if (priceVal === null) {
+                const joined = seg.join(' ');
+                const trailingPrice = extractTrailingPrice(joined);
+                if (trailingPrice) priceVal = trailingPrice.value;
+            }
 
-            // Build product name by joining original physical lines.
-            // If the last segment line contains the price, strip the price and include the remaining text.
             const lastLine = seg[seg.length - 1] || '';
             let nameLines = seg.slice(0, -1);
             if (CONFIG.PRICE_REGEX.test(lastLine)) {
@@ -749,9 +727,8 @@ function extractItems(text) {
             } else {
                 nameLines = seg.slice();
             }
-            // Join with space to form a single-line product name similar to Danea export
-                const productNameExact = sanitizeCodeBlockName(nameLines.join(' ').replace(/\s{2,}/g, ' ').trim());
-            // Skip pushing empty or non-meaningful names (e.g. just '00')
+
+            const productNameExact = sanitizeProductCandidate(nameLines.join(' ').replace(/\s{2,}/g, ' ').trim());
             if (priceVal !== null && /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(productNameExact)) {
                 items.push({ name: productNameExact, quantity: 1, price: priceVal, line_raw: seg.join(' ') });
                 handled = true;
@@ -759,32 +736,24 @@ function extractItems(text) {
         }
         if (handled) continue;
 
-        const priceMatch = trimmedLine.match(CONFIG.PRICE_REGEX);
-        if (!priceMatch) {
-            // Se non c'è un prezzo, allora è sicuro applicare i filtri di ignorare
+        const trailingPrice = extractTrailingPrice(trimmedLine);
+        if (!trailingPrice) {
             const lowerLine = trimmedLine.toLowerCase();
             if (CONFIG.IGNORE_KEYWORDS.some(keyword => lowerLine.includes(keyword))) continue;
             if (CONFIG.TOTAL_KEYWORDS.some(keyword => lowerLine.includes(keyword))) continue;
-            // senza prezzo non possiamo estrarre un item
             continue;
         }
 
-        const price = normalizeNumber(priceMatch[1]);
+        const price = trailingPrice.value;
         if (price === null) continue;
 
-        // If this logical line is actually a total/summary (contains total keywords), skip as item
         const lowerLine = trimmedLine.toLowerCase();
         if (CONFIG.TOTAL_KEYWORDS.some(keyword => lowerLine.includes(keyword))) {
             continue;
         }
 
-        const priceStart = trimmedLine.lastIndexOf(priceMatch[0]);
-        let productName = trimmedLine.substring(0, priceStart).trim();
+        let productName = trimmedLine.substring(0, trailingPrice.start).trim();
 
-        // If the physical block contains a product code at any line, prefer a
-        // conservative reconstruction: join the original physical lines (minus
-        // the trailing price) to match exactly what Danea provided. This avoids
-        // losing words or over-cleaning messy OCR fragments.
         const hasCodeLine = physBlock.some(l => codeStartRe.test(l));
         if (hasCodeLine) {
             productName = physBlock
@@ -794,7 +763,6 @@ function extractItems(text) {
                 .join(' ')
                 .trim();
         } else {
-            // Fallback: apply previous cleaning logic for non-coded blocks
             const headerRe = /\b(codice|descrizione|quantit|destinatario|vendita al banco|nr\.?|del)\b/i;
             const docRe = /documento creato con|danea easyfatt|dimostrativa|tot\. documento/i;
             const codeIndex = physBlock.findIndex(l => codeStartRe.test(l));
@@ -810,55 +778,13 @@ function extractItems(text) {
             if (joined) productName = joined;
         }
 
-        // Strip leading dates if present (e.g. "24/07/2026")
-        productName = productName.replace(/^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}\s*/, '');
+        productName = sanitizeProductCandidate(productName);
 
-        // Remove leading/trailing IGNORE_KEYWORDS from product names (e.g. "Test 1", "EURO")
-        // that got merged from header blocks in Scontrinoetico format.
-        productName = productName.replace(new RegExp('\\b(' + CONFIG.IGNORE_KEYWORDS.join('|') + ')\\b', 'gi'), ' ').replace(/\s{2,}/g, ' ').trim();
-        // Remove leading numbers that look like test/header (e.g. "Test 1" -> "1" remains, remove that too)
-        productName = productName.replace(/^\d+\s*/, '');
-        productName = productName.trim();
-
-        // Aggressive cleaning for OCR residues
-        productName = productName
-            .replace(/\b[A-Za-z]\b/g, ' ')
-            .replace(/[^A-Za-z0-9\s\-\"']{2,}/g, ' ')
-            .replace(/(?<=[A-Za-z])1(?=[A-Za-z])/g, '')
-            .replace(/\b\d+[A-Za-z]\b/g, ' ')
-            .replace(/\s{2,}/g, ' ')
-            .trim();
-
-        // Additional pass: remove isolated single letters separated by spaces caused by OCR
-        // But preserve "cm", "kg" etc. by keeping 2-char words with letters
-        productName = productName.replace(/\b[A-Za-z]\b/g, ' ').replace(/\s{2,}/g, ' ').trim();
-        
-        // Remove isolated single characters that remain after cleaning
-        const nameTokens = productName.split(/\s+/).filter(t => {
-            if (t.length >= 2) return true;
-            if (/^\d+$/.test(t)) return true;
-            if (/^[°'"]$/.test(t)) return true;
-            return false;
-        });
-        productName = nameTokens.join(' ');
-        productName = productName.trim();
-        
-        // If after all cleaning productName is just a single word that is a known
-        // ignore/payment keyword, skip it
-        const pnLower = productName.toLowerCase();
-        if (CONFIG.PAYMENT_KEYWORDS.some(k => pnLower === k) || CONFIG.IGNORE_KEYWORDS.some(k => pnLower === k)) {
-            continue;
-        }
-
-        // Extract quantity from the ORIGINAL line_raw (before name cleaning),
-        // so patterns like "2 x Brioche" are correctly parsed even if the
-        // cleaned name no longer contains the "x" separator.
         let quantity = 1;
         const quantityMatch = trimmedLine.match(CONFIG.QUANTITY_REGEX);
         if (quantityMatch) {
             quantity = parseInt(quantityMatch[1] || quantityMatch[2] || quantityMatch[3], 10);
         }
-        // Also try to extract quantity from the cleaned productName as fallback
         if (quantity === 1) {
             const qm2 = productName.match(CONFIG.QUANTITY_REGEX);
             if (qm2) {
@@ -866,28 +792,13 @@ function extractItems(text) {
                 productName = productName.replace(CONFIG.QUANTITY_REGEX, '').trim();
             }
         }
-        
-        // If quantity > 1 and productName starts with that number, remove it
-        // (e.g. "2 Brioche" -> "Brioche" when quantity=2)
-        if (quantity > 1) {
-            const qtyStr = String(quantity);
-            if (productName.startsWith(qtyStr + ' ')) {
-                productName = productName.substring(qtyStr.length + 1).trim();
-            }
-        }
 
         if (!productName) continue;
-
-        // Guard: if productName contains payment keywords only, skip
-        const productNameLower = (productName || '').toLowerCase();
-        if (CONFIG.PAYMENT_KEYWORDS.some(k => productNameLower.includes(k)) && !/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(productName)) {
-            continue;
-        }
 
         items.push({ name: productName, quantity, price, line_raw: trimmedLine });
     }
 
-    return items;
+    return dedupeItems(items);
 }
 
 // ============================================================================
@@ -915,14 +826,16 @@ function normalize(rawText, registerId = null) {
         const total = totalData ? totalData.total : null;
         
         // Estrai i prodotti
-            let items = extractItems(cleanedText);
+        let items = extractItemsFromFinalReceipt(cleanedText);
+        if (items.length === 0) {
+            items = extractItems(cleanedText);
+        }
 
-            // Reconcilia items con subtotal/total per correggere errori dovuti a linee di pagamento
-            const reconciliation = reconcileItems(items, cleanedText, total);
-            if (reconciliation.adjusted) {
-                items = reconciliation.items;
-                // Optionally, we could attach a flag to the normalized object indicating reconciliation
-            }
+        // Reconcilia items con subtotal/total per correggere errori dovuti a linee di pagamento
+        const reconciliation = reconcileItems(items, cleanedText, total);
+        if (reconciliation.adjusted) {
+            items = reconciliation.items;
+        }
         
         // Crea l'oggetto normalizzato (base)
         const normalized = {
@@ -1037,7 +950,13 @@ module.exports = {
 // Export internals for debugging (not intended for production use)
 module.exports._internals = {
     extractItems,
+    extractItemsFromFinalReceipt,
     validateChecklist,
+    preprocessRTF,
+    extractPriceCandidates,
+    extractTrailingPrice,
+    sanitizeProductCandidate,
+    dedupeItems,
     // buildLogicalBlocks: helper to inspect how physical lines are grouped
     buildLogicalBlocks: function(text) {
         const physLines = (text || '').split('\n').map(l => l.trim());
@@ -1058,7 +977,6 @@ module.exports._internals = {
             if (CONFIG.PRICE_REGEX.test(buffer)) { logicalBlocks.push({ text: buffer.trim(), physLines: physBuffer.slice() }); buffer = ''; physBuffer = []; }
         }
         if (buffer) logicalBlocks.push({ text: buffer.trim(), physLines: physBuffer.slice() });
-        // merge blocks where price split
         for (let i = 1; i < logicalBlocks.length; i++) {
             const prev = logicalBlocks[i-1]; const cur = logicalBlocks[i];
             const prevHasPrice = CONFIG.PRICE_REGEX.test(prev.text); const curHasPrice = CONFIG.PRICE_REGEX.test(cur.text);
@@ -1141,4 +1059,49 @@ function validateChecklist(normalized) {
     // Build result
     const requires_raw_text = missing.length > 0;
     return { missing_fields: missing, requires_raw_text, details };
+}
+
+function dedupeItems(items) {
+    const seen = new Set();
+    return (items || []).filter(item => {
+        const key = `${(item.name || '').toLowerCase().replace(/\s+/g, ' ').trim()}|${item.price}|${item.quantity || 1}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
+function extractItemsFromFinalReceipt(text) {
+    if (!/SCONTRINO FINALE:/i.test(text || '')) return [];
+
+    const lines = (text || '').split('\n').map(l => l.trim()).filter(Boolean);
+    const items = [];
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!/^\d{3,5}\b/.test(line)) continue;
+
+        let price = null;
+        let quantity = 1;
+        for (let j = i + 1; j < Math.min(lines.length, i + 6); j++) {
+            const next = lines[j];
+            const trailingPrice = extractTrailingPrice(next);
+            if (!trailingPrice) continue;
+            price = trailingPrice.value;
+            const qm = next.match(CONFIG.QUANTITY_REGEX) || next.match(/\b(\d+)\b/);
+            if (qm) quantity = parseInt(qm[1] || qm[2] || qm[3], 10) || 1;
+            break;
+        }
+
+        if (price !== null) {
+            items.push({
+                name: sanitizeProductCandidate(line),
+                quantity,
+                price,
+                line_raw: line
+            });
+        }
+    }
+
+    return dedupeItems(items);
 }

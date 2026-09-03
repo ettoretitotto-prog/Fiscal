@@ -37,6 +37,20 @@ type ReceiptItem = {
   amount?: number;
 };
 
+type ChecklistDetails = {
+  shop_name?: boolean;
+  piva?: boolean;
+  address?: boolean;
+  date?: boolean;
+  time?: boolean;
+  items_present?: boolean;
+  iva_rates?: boolean;
+  total?: boolean;
+  payment_method?: boolean;
+  rt_serial?: boolean;
+  document_phrase?: boolean;
+};
+
 type ReceiptData = {
   cassa_id?: string;
   store_name?: string;
@@ -46,6 +60,10 @@ type ReceiptData = {
   timestamp?: number;
   raw_text?: string;
   rawText?: string;
+  receipt_id?: string;
+  missing_fields?: string[];
+  requires_raw_text?: boolean;
+  checklist_details?: ChecklistDetails;
 };
 
 type ReceiptRecord = {
@@ -54,6 +72,9 @@ type ReceiptRecord = {
   status?: string;
   data?: ReceiptData;
   receipt_id?: string;
+  missing_fields?: string[];
+  requires_raw_text?: boolean;
+  checklist_details?: ChecklistDetails;
 };
 
 type DisplayItem = {
@@ -61,6 +82,20 @@ type DisplayItem = {
   qty: number;
   unitPrice: number;
   lineTotal: number;
+};
+
+const CHECKLIST_LABELS: Record<string, string> = {
+  shop_name: "Nome negozio",
+  piva: "Partita IVA",
+  address: "Indirizzo",
+  date: "Data",
+  time: "Ora",
+  items_description: "Acquisti",
+  iva_rates: "Aliquote IVA",
+  total: "Totale",
+  payment_method: "Pagamento",
+  rt_serial: "Matricola RT",
+  document_phrase: "Documento commerciale",
 };
 
 function fmt(n: number) {
@@ -108,11 +143,11 @@ function parseItemsFromRawText(rawText: unknown): ReceiptItem[] {
     return [];
   }
 
-  return rawText
+  const parsed = rawText
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => {
+    .map((line): ReceiptItem | null => {
       const priceMatch = line.match(/€?\s*(\d+[.,]\d{2})\s*$/);
       if (!priceMatch) {
         return null;
@@ -144,9 +179,10 @@ function parseItemsFromRawText(rawText: unknown): ReceiptItem[] {
         name: cleanName,
         quantity: qty || 1,
         line_total: lineTotal,
-      } satisfies ReceiptItem;
-    })
-    .filter((item): item is ReceiptItem => item !== null);
+      };
+    });
+
+  return parsed.filter((item): item is ReceiptItem => item !== null);
 }
 
 function normalizeDisplayItems(receipt: ReceiptRecord | null): DisplayItem[] {
@@ -202,6 +238,39 @@ function normalizeDisplayItems(receipt: ReceiptRecord | null): DisplayItem[] {
       } satisfies DisplayItem;
     })
     .filter((item): item is DisplayItem => item !== null);
+}
+
+function extractFieldValues(receipt: ReceiptRecord | null) {
+  const data = receipt?.data || {};
+  const text = (data.raw_text || data.rawText || "").toString();
+  const lower = text.toLowerCase();
+
+  const firstNonEmptyLine = text.split("\n").map(l => l.trim()).find(Boolean) || "";
+
+  // Heuristic patterns
+  const pivaMatch = text.match(/\b(?:p\.?\s?iva|partita iva)[:\s]*([A-Z]{2}\s?\d{11}|IT\s?\d{11}|\d{11})\b/i);
+  const dateMatch = text.match(/\b(\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}|\d{4}-\d{2}-\d{2})\b/);
+  const timeMatch = text.match(/\b\d{1,2}:\d{2}\b/);
+  const addressMatch = text.match(/\b(via|viale|piazza|p\.?zza|strada|corso|loc\.|localita|km)\b[^\n]{3,}/i);
+  const rtMatch = text.match(/\b(matricola|mat\.?|registratore(?: telematico)?)\b[\s:\-]{0,10}([A-Z0-9\-\/]{4,})/i);
+
+  const fields = {
+    nomeNegozio: data.store_name || firstNonEmptyLine || undefined,
+    partitaIVA: pivaMatch ? pivaMatch[1].replace(/\s+/g, '') : data.tax_id || undefined,
+    indirizzo: addressMatch ? addressMatch[0] : undefined,
+    data: dateMatch ? dateMatch[1] : undefined,
+    ora: timeMatch ? timeMatch[0] : undefined,
+    totale: typeof data.total === 'number' ? `€ ${fmt(data.total)}` : undefined,
+    pagamento: (() => {
+      if (!lower) return undefined;
+      if (/\bcontanti\b/i.test(text)) return 'Contanti';
+      if (/\b(carta|bancomat|visa|mastercard|credito|debito)\b/i.test(text)) return 'Carta';
+      return undefined;
+    })(),
+    matricolaRT: rtMatch ? rtMatch[2] : undefined,
+  } as const;
+
+  return fields;
 }
 
 export default function App() {
@@ -301,6 +370,9 @@ export default function App() {
   const total = toNumber(activeReceipt?.data?.total) || fallbackTotal;
   const receiptDate = fmtReceiptDate(activeReceipt?.timestamp);
   const storeName = activeReceipt?.data?.store_name || "Digital Receipt";
+  const requiresRawText = useMemo(() => getReceiptRequiresRawText(activeReceipt), [activeReceipt]);
+  const rawText = activeReceipt?.data?.raw_text ?? activeReceipt?.data?.rawText ?? "";
+  const fieldValues = useMemo(() => extractFieldValues(activeReceipt), [activeReceipt]);
 
   const handleShare = async () => {
     const shareTitle = `Scontrino ${storeName}`;
@@ -411,6 +483,26 @@ export default function App() {
               <span className="text-[10px] font-semibold tracking-wide" style={{ color: "#16a34a" }}>
                 {activeReceipt ? `Pagamento confermato · ${receiptDate}` : "In attesa di uno scontrino..."}
               </span>
+            </div>
+          </div>
+
+          {/* Campi principali (valori) */}
+          <div className="px-6 pt-4 pb-3 border-b border-border space-y-2">
+            <div className="grid grid-cols-1 gap-2">
+              {[
+                { label: 'Nome negozio', value: fieldValues.nomeNegozio },
+                { label: 'Partita IVA', value: fieldValues.partitaIVA },
+                { label: 'Indirizzo', value: fieldValues.indirizzo },
+                { label: 'Data', value: fieldValues.data },
+                { label: 'Ora', value: fieldValues.ora },
+                { label: 'Pagamento', value: fieldValues.pagamento },
+                { label: 'Matricola RT', value: fieldValues.matricolaRT },
+              ].filter(row => !!row.value).map((row) => (
+                <div key={row.label} className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">{row.label}</span>
+                  <span className="text-sm text-foreground" style={MONO}>{row.value}</span>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -563,4 +655,19 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+function getReceiptMissingFields(receipt: ReceiptRecord | null): string[] {
+  if (!receipt) return [];
+  return receipt.data?.missing_fields ?? receipt.missing_fields ?? [];
+}
+
+function getReceiptRequiresRawText(receipt: ReceiptRecord | null): boolean {
+  if (!receipt) return false;
+  return Boolean(receipt.data?.requires_raw_text ?? receipt.requires_raw_text);
+}
+
+function getReceiptChecklistDetails(receipt: ReceiptRecord | null): ChecklistDetails {
+  if (!receipt) return {};
+  return receipt.data?.checklist_details ?? receipt.checklist_details ?? {};
 }
