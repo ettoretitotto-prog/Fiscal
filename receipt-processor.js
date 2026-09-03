@@ -12,24 +12,19 @@ const normalizer = require('./receipt-normalizer');
 const sender = require('./firebase-receipt-sender');
 
 const CONFIG = {
-    captureDir: './captured_receipts',
+    captureDir: path.join(__dirname, 'captured_receipts'),
     printerName: 'CAPTURE_PRINTER',
     printWindowDuration: 60000,
     watchInterval: 2000,
-    // Sotto questa lunghezza (caratteri, dopo trim) un file viene considerato
-    // un comando di stampa (es. apertura cassetto) e non uno scontrino vero,
-    // quindi viene ignorato senza normalizzazione/invio a Firebase.
     minReceiptLength: 20,
-    logFile: './receipt-processor.log',
-    // Sottocartella dove vengono spostati i file già inviati con successo
-    // (o messi in coda offline), per non lasciarli nella cartella principale
-    // e non farli rileggere dal watcher in futuro.
-    processedDir: './captured_receipts/processed',
-    // TCP listener per Tilby (ESC/POS)
+    logFile: path.join(__dirname, 'receipt-processor.log'),
+    processedDir: path.join(__dirname, 'captured_receipts', 'processed'),
     tcpPort: 9100,
-    // Dove scrive la "porta locale" su Windows (usato anche da localport-watcher.js)
+    // Mantiene la compatibilità con POS sulla LAN; impostare 127.0.0.1 se Tilby gira sullo stesso PC.
+    tcpHost: process.env.FISCAL_TCP_HOST || '0.0.0.0',
+    tcpMaxPayloadBytes: 1024 * 1024,
+    tcpSocketTimeoutMs: 30000,
     tcpWatchedFile: 'C:\\FiscalPrintLocalPort\\output.prn',
-    // Quanto del payload loggare (per non saturare i log)
     tcpLogPreviewLength: 200
 };
 
@@ -72,8 +67,10 @@ function moveToProcessed(filePath) {
         const destPath = path.join(CONFIG.processedDir, path.basename(filePath));
         fs.renameSync(filePath, destPath);
         log(`📁 File spostato in processed/: ${path.basename(filePath)}`, 'PROCESS');
+        return true;
     } catch (err) {
         log(`Errore spostamento file in processed/: ${err.message}`, 'ERROR');
+        return false;
     }
 }
 
@@ -99,17 +96,21 @@ function watchCaptureDirectory() {
                 return;
             }
             
-            // Individua eventuali file nuovi non ancora visti
+            // Un file viene marcato come processato solo dopo invio/accodamento e spostamento riusciti.
             const newFiles = files.filter(f => !processedFiles.has(f));
             
             if (newFiles.length > 0) {
-                newFiles.forEach(f => {
-                    log(`Nuovo file rilevato: ${f}`, 'WATCH');
-                    processedFiles.add(f);
+                newFiles.forEach(async (f) => {
                     const filePath = path.join(CONFIG.captureDir, f);
-                    processReceiptFile(filePath).catch(err => {
+                    log(`File da elaborare: ${f}`, 'WATCH');
+                    try {
+                        const completed = await processReceiptFile(filePath);
+                        if (completed) {
+                            processedFiles.add(f);
+                        }
+                    } catch (err) {
                         log(`Errore elaborazione ${f}: ${err.message}`, 'ERROR');
-                    });
+                    }
                 });
             }
             
@@ -128,7 +129,7 @@ async function processReceiptFile(filePath, rawTextArg, normalizedReceiptArg) {
         const rawText = rawTextArg !== undefined ? rawTextArg : fs.readFileSync(filePath, 'utf8');
         
         // File di comando (es. apertura cassetto) generati dal gestionale come
-        // lavori di stampa separati: testo troppo corto per essere uno scontrino,
+        // lavori  moveToProcessed(filePath)di stampa separati: testo troppo corto per essere uno scontrino,
         // vengono ignorati silenziosamente senza normalizzazione/invio.
         if (rawText.trim().length < CONFIG.minReceiptLength) {
             log(`Ignorato file di comando/non scontrino (${rawText.trim().length} caratteri): ${path.basename(filePath)}`, 'SKIP');
@@ -154,24 +155,24 @@ async function processReceiptFile(filePath, rawTextArg, normalizedReceiptArg) {
             log(`⚠️  Ricevuta scartata dal guardiano finale: ${sendResult.reason || ''}`, 'DISCARD');
         }
         
-        // Sposta il file in processed/ solo se è stato inviato con successo
-        // o accodato offline (non se scartato dal guardiano, per poterlo
-        // ispezionare manualmente in caso di anomalie).
-        if (sendResult.success || sendResult.queued) {
-            moveToProcessed(filePath);
+        // Sposta il file solo dopo un invio confermato o una persistenza offline verificata.
+        const completed = (sendResult.success || sendResult.queued) && moveToProcessed(filePath);
+        if (!completed) {
+            log(`File mantenuto per nuovo tentativo: ${path.basename(filePath)}`, 'RETRY');
+            return false;
         }
         
         lastReceiptData = {
-
             rawText,
             normalizedReceipt,
             timestamp: new Date().toISOString()
         };
-        
         openPrintWindow();
+        return true;
         
     } catch (err) {
         log(`Errore elaborazione: ${err.message}`, 'ERROR');
+        return false;
     }
 }
 
@@ -214,11 +215,20 @@ function printLastReceipt() {
     try {
         log(`Stampa ricevuta: ${lastReceiptData.timestamp}`, 'PRINT');
         
-        // Stampa il testo grezzo
-        const printData = lastReceiptData.rawText;
-        const printCommand = `echo "${printData.replace(/"/g, '\\"')}" | print /d:"${CONFIG.printerName}"`;
+        // Usa un file temporaneo e execFile: il testo della ricevuta non viene mai interpretato dalla shell.
+        const { execFile } = require('child_process');
+        const tempFile = path.join(
+            __dirname,
+            `receipt-print-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`
+        );
+        fs.writeFileSync(tempFile, lastReceiptData.rawText, 'utf8');
         
-        require('child_process').exec(printCommand, (err) => {
+        execFile('print', [`/d:${CONFIG.printerName}`, tempFile], (err) => {
+            try {
+                fs.unlinkSync(tempFile);
+            } catch (_) {
+                // Il file temporaneo verrà ignorato se già rimosso dal sistema.
+            }
             if (err) {
                 log(`Errore stampa: ${err.message}`, 'ERROR');
             } else {
@@ -305,45 +315,37 @@ function startTcpServer() {
 
         const server = net.createServer((socket) => {
             const remote = `${socket.remoteAddress}:${socket.remotePort}`;
+            let receivedBytes = 0;
+            socket.setTimeout(CONFIG.tcpSocketTimeoutMs);
             log(`Nuova connessione TCP da ${remote}`, 'TCP');
 
             socket.on('data', (data) => {
                 try {
-                    // Scriviamo i dati raw (Buffer) nel file watched usato da localport-watcher
-                    // Usiamo append così più write sequenziali si accumulano fino a quando
-                    // il watcher considera il file "stabile".
+                    receivedBytes += data.length;
+                    if (receivedBytes > CONFIG.tcpMaxPayloadBytes) {
+                        log(`Connessione TCP chiusa: superato limite ${CONFIG.tcpMaxPayloadBytes} byte da ${remote}`, 'WARN');
+                        socket.destroy();
+                        return;
+                    }
+
                     fs.appendFileSync(CONFIG.tcpWatchedFile, data);
+                    socket.write(Buffer.from([0x06]));
 
-                    // Risposta ACK al client (Tilby): byte 0x06
-                    try {
-                        socket.write(Buffer.from([0x06])); // ACK byte (Ctrl+F)
-                    } catch (ackErr) {
-                        log(`Errore invio ACK a ${remote}: ${ackErr.message}`, 'WARN');
-                    }
-
-                    // Log raw buffer in HEX per debug completo
-                    try {
-                        log(`TCP ${remote} → RAW HEX: ${data.toString('hex')}`, 'TCP');
-                    } catch (hexErr) {
-                        log(`Errore formattazione HEX per ${remote}: ${hexErr.message}`, 'WARN');
-                    }
-
-                    // Preview testuale per il log (limitata)
                     let preview;
                     try {
-                        // Proviamo a convertire in stringa leggibile, rimuovendo caratteri di controllo
                         preview = data.toString('utf8').replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '');
                     } catch (_) {
-                        preview = data.toString('hex');
+                        preview = '[dati binari non visualizzabili]';
                     }
                     if (preview.length > CONFIG.tcpLogPreviewLength) {
                         preview = preview.substring(0, CONFIG.tcpLogPreviewLength) + '...';
                     }
 
-                    log(`TCP ${remote} → scritto ${data.length} byte su ${CONFIG.tcpWatchedFile}`, 'TCP');
+                    log(`TCP ${remote} → scritto ${data.length} byte (totale connessione: ${receivedBytes})`, 'TCP');
                     log(`TCP ${remote} → preview: ${preview}`, 'TCP');
                 } catch (err) {
                     log(`Errore scrittura su ${CONFIG.tcpWatchedFile}: ${err.message}`, 'ERROR');
+                    socket.destroy();
                 }
             });
 
@@ -355,6 +357,11 @@ function startTcpServer() {
             } catch (err) {
                 log(`Errore invio ACK iniziale a ${remote}: ${err.message}`, 'WARN');
             }
+
+            socket.on('timeout', () => {
+                log(`Timeout connessione TCP da ${remote}`, 'WARN');
+                socket.destroy();
+            });
 
             socket.on('end', () => {
                 log(`Connessione chiusa: ${remote}`, 'TCP');
@@ -369,11 +376,12 @@ function startTcpServer() {
             log(`Errore server TCP: ${err.message}`, 'ERROR');
         });
 
-        server.listen(CONFIG.tcpPort, () => {
-            log(`Server TCP avviato sulla porta ${CONFIG.tcpPort} - scrive in ${CONFIG.tcpWatchedFile}`, 'TCP');
+        server.maxConnections = 20;
+        server.listen(CONFIG.tcpPort, CONFIG.tcpHost, () => {
+            log(`Server TCP avviato su ${CONFIG.tcpHost}:${CONFIG.tcpPort} - scrive in ${CONFIG.tcpWatchedFile}`, 'TCP');
         });
 
-        // Non restituamo il server (lo manteniamo in vita), ma registriamo un handler per close se necessario.
+        // Non restituiamo il server: deve restare attivo insieme al processor.
     } catch (err) {
         log(`Impossibile avviare il server TCP: ${err.message}`, 'ERROR');
     }
@@ -392,16 +400,13 @@ function main() {
         log(`Cartella creata: ${CONFIG.captureDir}`, 'INIT');
     }
     
-    // Pre-popola l'elenco dei file già visti con quelli già presenti in
-    // captureDir al momento dell'avvio (es. residui di una sessione precedente
-    // interrotta prima dello spostamento in processed/), così il watcher non
-    // li tratta come "nuovi" e non li rinvia a Firebase.
+    // I file rimasti dopo un riavvio sono lavori non conclusi: vengono elaborati
+    // dal watcher e rimossi solo dopo invio o persistenza offline confermati.
     try {
         const existingFiles = fs.readdirSync(CONFIG.captureDir)
             .filter(file => file.endsWith('.txt'));
-        existingFiles.forEach(f => processedFiles.add(f));
         if (existingFiles.length > 0) {
-            log(`Ignorati ${existingFiles.length} file già presenti all'avvio: ${existingFiles.join(', ')}`, 'INIT');
+            log(`Recupero di ${existingFiles.length} file rimasti da una sessione precedente`, 'INIT');
         }
     } catch (err) {
         log(`Errore durante la lettura dei file esistenti: ${err.message}`, 'ERROR');

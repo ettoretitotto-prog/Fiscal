@@ -48,7 +48,7 @@ for (const testCase of CASES) {
   console.log(`\n=== ${testCase.name} ===`);
   console.log('total:', result.total, '| expected:', testCase.expectedTotal);
   console.log('items found:', result.items.length);
-  result.items.forEach((item) => console.log(` - ${item.name} :: €${item.price}`));
+  result.items.forEach((item) => console.log(` - ${item.name} :: €${item.line_total}`));
 
   if (result.total !== testCase.expectedTotal) {
     console.error(`FAIL total mismatch for ${testCase.name}`);
@@ -56,7 +56,7 @@ for (const testCase of CASES) {
   }
 
   for (const expected of testCase.expectedItems) {
-    const found = result.items.find((item) => item.name.includes(expected.code) && Math.abs(item.price - expected.price) < 0.001);
+    const found = result.items.find((item) => item.name.includes(expected.code) && Math.abs(item.line_total - expected.price) < 0.001);
     if (!found) {
       console.error(`FAIL missing item ${expected.code} @ ${expected.price} for ${testCase.name}`);
       hasFailures = true;

@@ -7,6 +7,7 @@
  *   node receipt-normalizer.test.js
  */
 
+const assert = require('assert');
 const normalizer = require('./receipt-normalizer');
 
 // ============================================================================
@@ -80,25 +81,19 @@ function testNormalize(name, rawText, expectedTotal, expectedItemCount) {
     console.log(`✓ Total: ${result.total} (atteso: ${expectedTotal})`);
     console.log(`✓ Items: ${result.items.length} (atteso: ${expectedItemCount})`);
     
-    // Verifica il totale
-    if (result.total === expectedTotal) {
-        console.log(`✅ Totale corretto`);
-    } else {
-        console.log(`❌ Totale errato! Atteso ${expectedTotal}, ricevuto ${result.total}`);
-    }
-    
-    // Verifica il numero di prodotti
-    if (result.items.length === expectedItemCount) {
-        console.log(`✅ Numero di prodotti corretto`);
-    } else {
-        console.log(`❌ Numero di prodotti errato! Atteso ${expectedItemCount}, ricevuto ${result.items.length}`);
-    }
+    assert.strictEqual(result.total, expectedTotal, `${name}: totale errato`);
+    assert.strictEqual(result.items.length, expectedItemCount, `${name}: numero di prodotti errato`);
+    result.items.forEach((item) => {
+        assert.ok(Number.isFinite(item.unit_price), `${name}: unit_price mancante`);
+        assert.ok(Number.isFinite(item.line_total), `${name}: line_total mancante`);
+    });
+    console.log(`✅ Totale e numero di prodotti corretti`);
     
     // Mostra i prodotti estratti
     if (result.items.length > 0) {
         console.log(`\n📦 Prodotti estratti:`);
         result.items.forEach((item, idx) => {
-            console.log(`   ${idx + 1}. ${item.name} (x${item.quantity}) - €${item.price.toFixed(2)}`);
+            console.log(`   ${idx + 1}. ${item.name} (x${item.quantity}) - €${item.line_total.toFixed(2)}`);
         });
     }
     

@@ -177,7 +177,7 @@
         <div class="subtitle">Simulatore POS per presentazioni</div>
 
         <div style="text-align:center;">
-            <span class="cassa-id-badge" id="cassa-id-badge">cassa: demo01</span>
+            <span class="cassa-id-badge" id="cassa-id-badge">cassa: negozio1</span>
         </div>
 
         <div class="menu-grid" id="menu-grid">
@@ -224,9 +224,8 @@
         <hr class="divider" />
 
         <div class="demo-links">
-            <a href="/?cassa=demo01" target="_blank">📱 Cliente</a>
+            <a href="/?cassa=negozio1" target="_blank">📱 Cliente</a>
             <a href="#" onclick="resetCassa()">🔄 Reset</a>
-            <a href="/cassa.html?cassa=demo02" target="_blank">➕ Altra cassa</a>
         </div>
     </div>
 
@@ -234,7 +233,7 @@
         (function() {
             'use strict';
 
-            const cassaId = new URLSearchParams(window.location.search).get('cassa') || 'demo01';
+            const cassaId = new URLSearchParams(window.location.search).get('cassa') || 'negozio1';
             document.getElementById('cassa-id-badge').textContent = 'cassa: ' + cassaId;
 
             firebase.initializeApp(FIREBASE_CONFIG);

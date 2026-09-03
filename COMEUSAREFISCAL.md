@@ -64,6 +64,17 @@ Lo scontrino apparirà sul telefono collegato.
 
 ---
 
+## 🔒 Nota tecnica per il futuro
+
+Questa installazione è configurata per un solo punto vendita, **Negozio 1**. Prima di usare Fiscal per più negozi, sarà necessario decidere come archiviare e isolare le informazioni:
+
+- un backend unico gestito centralmente, con separazione dei dati per cliente;
+- oppure un backend/progetto separato per ogni cliente.
+
+La scelta dovrà includere autenticazione, autorizzazioni, backup, tempi di conservazione e cancellazione dei dati fiscali e dei contatti raccolti. Per ora non modificare manualmente la configurazione Firebase del negozio.
+
+---
+
 ## ❓ Problemi?
 
 - **"Non si apre firstsetup.ps1"** → Click destro → "Esegui con PowerShell"

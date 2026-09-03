@@ -176,8 +176,8 @@ function processReceipt(rawBuffer) {
 // dimensione file per capire quando la scrittura è "ferma" da un po' (debounce),
 // invece di reagire al primo evento (che potrebbe cogliere il file a metà scrittura).
 
-let debounceTimer = null;
 let lastSize = -1;
+let lastChangeAt = 0;
 let processingLock = false;
 
 function checkFileStable() {
@@ -187,28 +187,41 @@ function checkFileStable() {
         if (!fs.existsSync(WATCHED_FILE)) return;
 
         const stats = fs.statSync(WATCHED_FILE);
-        if (stats.size === 0) return;
+        if (stats.size === 0) {
+            lastSize = -1;
+            lastChangeAt = 0;
+            return;
+        }
 
-        if (stats.size === lastSize) {
-            // dimensione stabile da un ciclo: consideriamo la scrittura finita
-            processingLock = true;
-            try {
-                const rawBuffer = fs.readFileSync(WATCHED_FILE);
-                processReceipt(rawBuffer);
-            } catch (err) {
-                log(`Errore nella lettura/elaborazione del file: ${err.message}`, 'ERROR');
-            } finally {
-                // Svuota il file per non rielaborare lo stesso contenuto al giro dopo
-                try {
-                    fs.writeFileSync(WATCHED_FILE, '');
-                } catch (err) {
-                    log(`Impossibile svuotare il file dopo l'elaborazione: ${err.message}`, 'WARN');
-                }
-                lastSize = -1;
-                processingLock = false;
-            }
-        } else {
+        const now = Date.now();
+        if (stats.size !== lastSize) {
             lastSize = stats.size;
+            lastChangeAt = now;
+            return;
+        }
+
+        if (!lastChangeAt || now - lastChangeAt < DEBOUNCE_MS) {
+            return;
+        }
+
+        processingLock = true;
+        try {
+            const rawBuffer = fs.readFileSync(WATCHED_FILE);
+            // Evita di cancellare byte aggiunti tra la lettura e lo svuotamento.
+            const sizeBeforeRead = rawBuffer.length;
+            processReceipt(rawBuffer);
+            const sizeAfterProcessing = fs.statSync(WATCHED_FILE).size;
+            if (sizeAfterProcessing === sizeBeforeRead) {
+                fs.writeFileSync(WATCHED_FILE, '');
+            } else {
+                log('Nuovi byte rilevati durante l’elaborazione: il file verrà processato al ciclo successivo', 'WATCH');
+            }
+        } catch (err) {
+            log(`Errore nella lettura/elaborazione del file: ${err.message}`, 'ERROR');
+        } finally {
+            lastSize = -1;
+            lastChangeAt = 0;
+            processingLock = false;
         }
     } catch (err) {
         log(`Errore nel controllo del file: ${err.message}`, 'ERROR');

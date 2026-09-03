@@ -479,11 +479,18 @@ function extractSubtotal(text) {
  * prova a riassociare price-only blocks al prodotto precedente, e, se necessario,
  * cerca una combinazione di items che corrisponda al subtotale (small subset-sum).
  */
+function getItemLineTotal(item) {
+    const lineTotal = Number(item.line_total ?? item.lineTotal);
+    if (Number.isFinite(lineTotal) && lineTotal > 0) return lineTotal;
+    const price = Number(item.price);
+    return Number.isFinite(price) ? price : 0;
+}
+
 function reconcileItems(items, text, reportedTotal) {
     const result = { items: items.slice(), adjusted: false, reason: null };
 
-    // compute sum
-    const sum = result.items.reduce((s, it) => s + (it.price || 0) * (it.quantity || 1), 0);
+    // `price` nei parser storici rappresenta l'importo della riga, non il prezzo unitario.
+    const sum = result.items.reduce((s, it) => s + getItemLineTotal(it), 0);
     const subtotal = extractSubtotal(text) || reportedTotal || null;
 
     if (subtotal === null) {
@@ -504,7 +511,7 @@ function reconcileItems(items, text, reportedTotal) {
         result.adjusted = true; result.reason = 'removed_payment_items';
     }
 
-    const sum2 = result.items.reduce((s, it) => s + (it.price || 0) * (it.quantity || 1), 0);
+    const sum2 = result.items.reduce((s, it) => s + getItemLineTotal(it), 0);
     if (Math.abs(sum2 - subtotal) < 0.005) return result;
 
     // Step 2: try to reassign price-only occurrences: scan text for lines with price
@@ -536,7 +543,7 @@ function reconcileItems(items, text, reportedTotal) {
         }
         if (newItems.length > 0) {
             // replace items with the new inferred ones and check sum
-            const sumNew = newItems.reduce((s, it) => s + it.price * (it.quantity || 1), 0);
+            const sumNew = newItems.reduce((s, it) => s + getItemLineTotal(it), 0);
             if (Math.abs(sumNew - subtotal) < 0.005) {
                 result.items = newItems; result.adjusted = true; result.reason = 'reassociated_prices';
                 return result;
@@ -545,7 +552,7 @@ function reconcileItems(items, text, reportedTotal) {
     }
 
     // Step 3: small subset-sum attempt (only up to N items to avoid expensive compute)
-    const vals = result.items.map(it => Math.round((it.price || 0) * 100));
+    const vals = result.items.map(it => Math.round(getItemLineTotal(it) * 100));
     const target = Math.round(subtotal * 100);
     const N = vals.length;
     if (N <= 20) {
@@ -845,6 +852,19 @@ function normalize(rawText, registerId = null) {
             total,
             items
         };
+        // Distinguere unit_price e line_total per ogni item
+        normalized.items = normalized.items.map(it => {
+            const line_total = getItemLineTotal(it);
+            const unit_price = it.quantity && line_total > 0
+                ? line_total / it.quantity
+                : line_total;
+            return {
+                name: it.name,
+                quantity: it.quantity || 1,
+                unit_price: Number(unit_price.toFixed(2)),
+                line_total: Number(line_total.toFixed(2))
+            };
+        });
 
         // Esegui la validazione della checklist e arricchisci l'output
         try {
@@ -1062,13 +1082,9 @@ function validateChecklist(normalized) {
 }
 
 function dedupeItems(items) {
-    const seen = new Set();
-    return (items || []).filter(item => {
-        const key = `${(item.name || '').toLowerCase().replace(/\s+/g, ' ').trim()}|${item.price}|${item.quantity || 1}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
+    // Righe identiche possono rappresentare acquisti distinti: non deduplicarle.
+    // Il parser deve preservare il dettaglio fiscale originale.
+    return Array.isArray(items) ? items.slice() : [];
 }
 
 function extractItemsFromFinalReceipt(text) {

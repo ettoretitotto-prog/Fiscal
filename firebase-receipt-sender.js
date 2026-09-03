@@ -33,8 +33,8 @@ try {
 // ============================================================================
 
 let CONFIG = {
-    register_id: 'demo01',
-    store_name: 'Negozio Test',
+    register_id: 'negozio1',
+    store_name: 'Negozio 1',
 
     firebase: {
         databaseURL: 'https://fiscal-9a0c8-default-rtdb.europe-west1.firebasedatabase.app'
@@ -221,30 +221,53 @@ async function sendWithRetry(receiptData, attempt = 0) {
 // OFFLINE QUEUE
 // ============================================================================
 
+function getOfflineQueuePath() {
+    return path.isAbsolute(CONFIG.offline.queueFile)
+        ? CONFIG.offline.queueFile
+        : path.join(__dirname, CONFIG.offline.queueFile);
+}
+
 /**
- * Carica la coda offline dal file
+ * Carica la coda offline dal file.
  */
 function loadOfflineQueue() {
+    const queuePath = getOfflineQueuePath();
     try {
-        if (fs.existsSync(CONFIG.offline.queueFile)) {
-            const queue = JSON.parse(fs.readFileSync(CONFIG.offline.queueFile, 'utf8'));
+        if (fs.existsSync(queuePath)) {
+            const queue = JSON.parse(fs.readFileSync(queuePath, 'utf8'));
+            if (!Array.isArray(queue)) {
+                throw new Error('il contenuto della coda non è un array');
+            }
             log(`Coda offline caricata: ${queue.length} ricevute in attesa`, 'QUEUE');
             return queue;
         }
     } catch (err) {
-        log(`Errore nel caricamento della coda offline: ${err.message}`, 'ERROR');
+        const corruptPath = `${queuePath}.${Date.now()}.corrupted`;
+        try {
+            fs.renameSync(queuePath, corruptPath);
+            log(`Coda offline corrotta archiviata in: ${corruptPath}`, 'ERROR');
+        } catch (_) {
+            log(`Errore nel caricamento della coda offline: ${err.message}`, 'ERROR');
+        }
     }
     return [];
 }
 
 /**
- * Salva la coda offline su file
+ * Salva la coda offline in modo atomico e restituisce l'esito della persistenza.
  */
 function saveOfflineQueue(queue) {
+    const queuePath = getOfflineQueuePath();
+    const tempPath = `${queuePath}.${process.pid}.${Date.now()}.tmp`;
     try {
-        fs.writeFileSync(CONFIG.offline.queueFile, JSON.stringify(queue, null, 2));
+        fs.mkdirSync(path.dirname(queuePath), { recursive: true });
+        fs.writeFileSync(tempPath, JSON.stringify(queue, null, 2), { encoding: 'utf8', mode: 0o600 });
+        fs.renameSync(tempPath, queuePath);
+        return true;
     } catch (err) {
+        try { fs.unlinkSync(tempPath); } catch (_) { /* niente da pulire */ }
         log(`Errore nel salvataggio della coda offline: ${err.message}`, 'ERROR');
+        return false;
     }
 }
 
@@ -256,8 +279,8 @@ function addToOfflineQueue(receiptData) {
         let queue = loadOfflineQueue();
         
         if (queue.length >= CONFIG.offline.maxQueueSize) {
-            log(`⚠️  Coda offline piena (${CONFIG.offline.maxQueueSize}), scarto la ricevuta più vecchia`, 'WARN');
-            queue.shift();
+            log(`Coda offline piena (${CONFIG.offline.maxQueueSize}): ricevuta non accodata per evitare perdite silenziose`, 'ERROR');
+            return false;
         }
         
         queue.push({
@@ -266,9 +289,10 @@ function addToOfflineQueue(receiptData) {
             attempts: 0
         });
         
-        saveOfflineQueue(queue);
+        if (!saveOfflineQueue(queue)) {
+            return false;
+        }
         log(`📦 Ricevuta aggiunta alla coda offline (${queue.length}/${CONFIG.offline.maxQueueSize})`, 'QUEUE');
-        
         return true;
         
     } catch (err) {
@@ -313,7 +337,9 @@ async function processOfflineQueue() {
             }
         }
         
-        saveOfflineQueue(newQueue);
+        if (!saveOfflineQueue(newQueue)) {
+            throw new Error('impossibile salvare lo stato aggiornato della coda offline');
+        }
         
         return { processed, failed, remaining: newQueue.length };
         
@@ -386,14 +412,13 @@ async function sendReceipt(normalizedReceipt) {
             return result;
             
         } catch (err) {
-            // Se l'invio fallisce, aggiungi alla coda offline
-            log(`Invio fallito, aggiunta alla coda offline: ${err.message}`, 'OFFLINE');
-            addToOfflineQueue(normalizedReceipt);
-            
+            // Restituisce queued=true solo quando la persistenza offline è stata verificata.
+            log(`Invio fallito, tentativo di accodamento offline: ${err.message}`, 'OFFLINE');
+            const queued = addToOfflineQueue(normalizedReceipt);
             return {
                 success: false,
-                queued: true,
-                error: err.message
+                queued,
+                error: queued ? err.message : `${err.message}; coda offline non salvata`
             };
         }
         

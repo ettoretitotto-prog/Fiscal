@@ -286,7 +286,7 @@ export default function App() {
   const [activeReceipt, setActiveReceipt] = useState<ReceiptRecord | null>(null);
   const receiptCardRef = useRef<HTMLDivElement | null>(null);
   const cassaId = useMemo(
-    () => new URLSearchParams(window.location.search).get("cassa") || "demo01",
+    () => new URLSearchParams(window.location.search).get("cassa") || "negozio1",
     [],
   );
 
@@ -365,9 +365,15 @@ export default function App() {
 
   const items = useMemo(() => normalizeDisplayItems(activeReceipt), [activeReceipt]);
   const subtotal = items.reduce((acc, item) => acc + item.lineTotal, 0);
-  const tax = subtotal * 0.22;
-  const fallbackTotal = subtotal + tax;
-  const total = toNumber(activeReceipt?.data?.total) || fallbackTotal;
+  const normalizedTotal = toNumber(activeReceipt?.data?.total);
+  const taxValue = normalizedTotal
+    ? normalizedTotal - subtotal
+    : subtotal * 0.22;
+  const taxLabel = normalizedTotal
+    ? "IVA"
+    : "IVA 22%";
+  const fallbackTotal = subtotal + subtotal * 0.22;
+  const total = normalizedTotal || fallbackTotal;
   const receiptDate = fmtReceiptDate(activeReceipt?.timestamp);
   const storeName = activeReceipt?.data?.store_name || "Digital Receipt";
   const requiresRawText = useMemo(() => getReceiptRequiresRawText(activeReceipt), [activeReceipt]);
@@ -481,10 +487,18 @@ export default function App() {
             >
               <Check className="w-3 h-3" style={{ color: "#16a34a" }} strokeWidth={2.5} />
               <span className="text-[10px] font-semibold tracking-wide" style={{ color: "#16a34a" }}>
-                {activeReceipt ? `Pagamento confermato · ${receiptDate}` : "In attesa di uno scontrino..."}
+                {activeReceipt
+                  ? `${requiresRawText ? "Dati da verificare" : "Pagamento confermato"} · ${receiptDate}`
+                  : "In attesa di uno scontrino..."}
               </span>
             </div>
           </div>
+
+          {activeReceipt && requiresRawText && (
+            <div className="mx-6 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Alcuni dati non sono stati riconosciuti automaticamente: verifica il testo originale dello scontrino.
+            </div>
+          )}
 
           {/* Campi principali (valori) */}
           <div className="px-6 pt-4 pb-3 border-b border-border space-y-2">
@@ -531,15 +545,18 @@ export default function App() {
 
           {/* Subtotals */}
           <div className="px-6 pt-5 pb-4 space-y-3 border-b border-border">
-            {[
-              { label: "Subtotale", value: `€${fmt(subtotal)}` },
-              { label: "IVA 22%", value: `€${fmt(tax)}` },
-            ].map((row) => (
-              <div key={row.label} className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">{row.label}</span>
-                <span className="text-sm text-foreground" style={MONO}>{row.value}</span>
+            {items.length > 0 && (
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Subtotale articoli</span>
+                <span className="text-sm text-foreground" style={MONO}>€{fmt(subtotal)}</span>
               </div>
-            ))}
+            )}
+            {items.length > 0 && Math.abs(taxValue) >= 0.005 && (
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">{taxLabel}</span>
+                <span className="text-sm text-foreground" style={MONO}>€{fmt(taxValue)}</span>
+              </div>
+            )}
           </div>
 
           {/* Total */}
@@ -549,6 +566,15 @@ export default function App() {
               €{fmt(total)}
             </span>
           </div>
+
+          {activeReceipt && requiresRawText && typeof rawText === "string" && rawText.trim() && (
+            <details className="mx-6 mb-6 rounded-xl border border-border bg-secondary/40 px-3 py-2">
+              <summary className="cursor-pointer text-xs font-medium text-foreground">Mostra testo originale</summary>
+              <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap text-[11px] text-muted-foreground" style={MONO}>
+                {rawText}
+              </pre>
+            </details>
+          )}
 
         </div>
 
