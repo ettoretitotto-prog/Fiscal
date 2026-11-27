@@ -10,3 +10,4 @@ serviceAccountKey.json
 functions/lib/
 !functions/.env
 functions/.secret.local
+!web/.env.production
