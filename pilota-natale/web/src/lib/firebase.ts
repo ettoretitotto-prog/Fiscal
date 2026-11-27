@@ -1,41 +1,42 @@
 import { initializeApp, getApp, getApps, deleteApp, type FirebaseApp } from "firebase/app";
 import { getAuth, initializeAuth, inMemoryPersistence, connectAuthEmulator, type Auth } from "firebase/auth";
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
+import { getStorage, connectStorageEmulator } from "firebase/storage";
+import { getFunctions, connectFunctionsEmulator, httpsCallable } from "firebase/functions";
+import { getConfig, USE_EMULATORS } from "./config";
 
-// Configurazione web del progetto Firebase "fiscal-9a0c8" (valori pubblici,
-// la sicurezza è garantita dalle regole Firestore/Storage, non da questi valori).
-export const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyBtLDRSn5Jo7ZiAqiVJMEch4JLl7dLcFxo",
-  authDomain: "fiscal-9a0c8.firebaseapp.com",
-  projectId: "fiscal-9a0c8",
-  storageBucket: "fiscal-9a0c8.firebasestorage.app",
-  messagingSenderId: "203263315808",
-  appId: "1:203263315808:web:b0ad8d1e3f92c478fc9805",
-};
+// Questo modulo va importato solo DOPO loadConfig() (vedi main.tsx / boot.tsx).
+const cfg = getConfig();
+// Con gli emulatori il telefono in LAN raggiunge il PC allo stesso host della pagina.
+const EMU_HOST = window.location.hostname;
 
-// Solo in `vite dev`: una build di produzione non può mai puntare agli emulatori.
-export const USE_EMULATORS = import.meta.env.DEV && import.meta.env.VITE_USE_EMULATORS === "true";
-// Con gli emulatori, il telefono in LAN raggiunge il PC allo stesso host della pagina.
-const EMU_HOST = typeof window !== "undefined" ? window.location.hostname : "127.0.0.1";
-
-export const app = getApps().length ? getApp() : initializeApp(FIREBASE_CONFIG);
+export const app = getApps().length ? getApp() : initializeApp(cfg);
 export const auth = getAuth(app);
 auth.languageCode = "it";
 export const db = getFirestore(app);
+export const storage = getStorage(app);
+export const functions = getFunctions(app, "europe-west1");
 
 if (USE_EMULATORS) {
   connectAuthEmulator(auth, `http://${EMU_HOST}:9099`, { disableWarnings: true });
   connectFirestoreEmulator(db, EMU_HOST, 8080);
+  connectStorageEmulator(storage, EMU_HOST, 9199);
+  connectFunctionsEmulator(functions, EMU_HOST, 5001);
+}
+
+/** Chiama una Cloud Function "callable". */
+export async function call<I, O>(name: string, data: I): Promise<O> {
+  const res = await httpsCallable<I, O>(functions, name)(data);
+  return res.data;
 }
 
 /**
- * Istanza Auth secondaria: permette all'admin di creare l'account di un
- * negozio senza perdere la propria sessione (funziona anche senza Cloud Functions).
+ * Istanza Auth secondaria in memoria: permette all'admin di creare l'account di un
+ * negozio senza perdere la propria sessione.
  */
 export async function withSecondaryAuth<T>(fn: (a: Auth) => Promise<T>): Promise<T> {
   const name = `secondary-${Math.random().toString(36).slice(2)}`;
-  const secondary: FirebaseApp = initializeApp(FIREBASE_CONFIG, name);
-  // In memoria: la sessione del nuovo account negozio non resta salvata nel browser dell'admin.
+  const secondary: FirebaseApp = initializeApp(cfg, name);
   const a = initializeAuth(secondary, { persistence: inMemoryPersistence });
   a.languageCode = "it";
   if (USE_EMULATORS) connectAuthEmulator(a, `http://${EMU_HOST}:9099`, { disableWarnings: true });

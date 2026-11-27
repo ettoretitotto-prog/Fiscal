@@ -7,3 +7,6 @@ serviceAccountKey.json
 .env
 .env.*
 !.env.example
+functions/lib/
+!functions/.env
+functions/.secret.local

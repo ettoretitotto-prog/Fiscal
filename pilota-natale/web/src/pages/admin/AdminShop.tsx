@@ -5,6 +5,8 @@ import { getShop, getShopAccount, sendSetPasswordEmail, shopLink, updateShop } f
 import { downloadPosterPdf, downloadPosterPng, downloadQrPng, qrDataUrl } from "../../lib/qr";
 import type { Shop, ShopAccount } from "../../lib/types";
 import { Alert, Button, Card, Field, Input, Spinner, TextArea, errorMessage } from "../../components/ui";
+import { ExportButtons, MetricGrid } from "../../components/Stats";
+import { adminStats, type ShopStats } from "../../lib/api";
 
 function ShopDetail({ shopId }: { shopId: string }) {
   const [params] = useSearchParams();
@@ -14,6 +16,7 @@ function ShopDetail({ shopId }: { shopId: string }) {
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState<string>("");
+  const [stats, setStats] = useState<ShopStats | null>(null);
 
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
@@ -40,6 +43,7 @@ function ShopDetail({ shopId }: { shopId: string }) {
       }
     })();
     qrDataUrl(link, 512).then(setQr);
+    adminStats().then((r) => setStats(r.shops.find((s) => s.shopId === shopId) ?? null)).catch(() => {});
   }, [shopId, link]);
 
   async function run(key: string, fn: () => Promise<void>, ok: string) {
@@ -127,9 +131,14 @@ function ShopDetail({ shopId }: { shopId: string }) {
               {shop.active ? "Disattiva negozio" : "Riattiva negozio"}
             </Button>
           </div>
-          <p className="mt-4 text-xs text-stone-500">Le metriche del negozio (prove, link aperti, cambi, sconti, CSV) arrivano al passo 6.</p>
         </Card>
       </div>
+
+      <Card className="mt-5">
+        <h2 className="mb-3 font-bold">Metriche</h2>
+        {stats ? <MetricGrid stats={stats} /> : <Spinner label="Calcolo le metriche…" />}
+        <div className="mt-4"><ExportButtons shopId={shopId} /></div>
+      </Card>
 
       <Card className="mt-5">
         <h2 className="mb-3 font-bold">Dati e regole</h2>

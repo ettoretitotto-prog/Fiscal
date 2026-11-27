@@ -1,7 +1,7 @@
 # Scontrino Digitale — Zero-Hardware Multi-Tenant MVP
 
 > **Nota:** il nuovo progetto **Fiscal · Pilota Natale** (prova d'acquisto regalo) vive in una cartella separata,
-> [`pilota-natale/`](pilota-natale/README.md), con dipendenze, regole e sito Hosting propri. Questo README riguarda solo il vecchio MVP.
+> [`pilota-natale/`](pilota-natale/README.md), con dipendenze, regole e un progetto Firebase propri. Questo README riguarda solo il vecchio MVP.
 
 Questo MVP connette una cassa (POS o tablet) a un dispositivo cliente (NFC o URL statico) in tempo reale tramite **Firebase Realtime Database**.
 

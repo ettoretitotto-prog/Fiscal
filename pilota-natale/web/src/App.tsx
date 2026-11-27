@@ -1,6 +1,8 @@
 import { lazy, Suspense } from "react";
 import { Route, Routes, Link } from "react-router";
 import BuyerStart from "./pages/BuyerStart";
+import GiftPage from "./pages/GiftPage";
+import OwnerCopy from "./pages/OwnerCopy";
 import Privacy from "./pages/Privacy";
 import { Brand, Page, Spinner } from "./components/ui";
 
@@ -43,6 +45,8 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/n/:shopId" element={<BuyerStart />} />
+      <Route path="/c/:token" element={<OwnerCopy />} />
+      <Route path="/r/:token" element={<GiftPage />} />
       <Route path="/negozio" element={<ShopHome />} />
       <Route path="/admin" element={<AdminHome />} />
       <Route path="/admin/negozi/nuovo" element={<AdminNewShop />} />

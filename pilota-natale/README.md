@@ -1,109 +1,245 @@
 # Fiscal · Pilota Natale
 
 Prova d'acquisto regalo digitale che sostituisce lo scontrino di cortesia di carta.
-Progetto **separato** dal vecchio software Fiscal (scontrini digitali via cassa/NFC, nella radice del repo):
-cartella, dipendenze, regole e sito Hosting propri. Condivide solo il progetto Firebase `fiscal-9a0c8`.
 
-| Cosa | Dove |
-|---|---|
-| Web app (cliente, destinatario, negozio, admin) | `web/` (Vite + React + TypeScript + Tailwind) |
-| Regole Firestore / Storage | `firestore.rules`, `storage.rules` |
-| Cloud Functions (email, link, scansione) | `functions/` *(dal passo 2-3, richiede Blaze)* |
-| Seed e script admin | `scripts/` |
-| Test regole | `tests/` |
+Progetto **completamente separato** dal vecchio Fiscal (scontrini digitali via cassa/NFC, nella radice del repo):
+cartella propria, dipendenze proprie e **progetto Firebase proprio** ("Fiscal Pilota Natale", piano Blaze).
 
-Sito pubblico: `https://fiscal-natale.web.app` (sito Hosting separato; il sito del vecchio Fiscal resta intatto).
+## Indice
+1. [Come funziona](#come-funziona)
+2. [Architettura e dati](#architettura-e-dati)
+3. [Setup del progetto Firebase (una volta)](#setup-del-progetto-firebase-una-volta)
+4. [Email con Resend](#email-con-resend)
+5. [Deploy](#deploy)
+6. [Sviluppo locale con gli emulatori](#sviluppo-locale-con-gli-emulatori)
+7. [Checklist di test: dalla foto in cassa al cambio in negozio](#checklist-di-test-dalla-foto-in-cassa-al-cambio-in-negozio)
+8. [Sicurezza e privacy](#sicurezza-e-privacy)
+9. [Problemi comuni](#problemi-comuni)
 
-## Stato dei passi
+---
 
-| # | Passo | Stato | Serve Blaze? |
-|---|---|---|---|
-| 1 | Admin + negozi + QR | ✅ | No |
-| 2 | Web app cliente (foto scontrino) | ⏳ | **Sì** (Storage + Functions) |
-| 3 | Email e link regalo | ⏳ | **Sì** |
-| 4 | Pagina destinatario | ⏳ | **Sì** |
-| 5 | Web app negoziante | ⏳ | **Sì** |
-| 6 | Metriche e CSV | ⏳ | **Sì** |
+## Come funziona
 
-> **Perché Blaze.** Da ottobre 2024 i nuovi bucket Cloud Storage (`*.firebasestorage.app`) e le
-> Cloud Functions richiedono il piano Blaze. Per un pilota di 3-5 negozi i consumi restano dentro le
-> quote gratuite (2M invocazioni/mese, 5 GB di Storage): costo atteso **0 €**. Imposta comunque un
-> avviso di budget (es. 5 €) in Google Cloud → Fatturazione → Budget e avvisi.
-> Senza Blaze si può sviluppare e provare **tutto** in locale con gli emulatori Firebase.
+| Chi | Pagina | Cosa fa |
+|---|---|---|
+| Chi regala | `/n/{negozio}` (QR statico in cassa) | Fotografa lo scontrino, descrive l'articolo, inserisce l'email. "Aggiungi un altro regalo" riapre la fotocamera senza richiedere l'email. Ogni scontrino = una prova. |
+| Chi regala | `/c/{token privato}` (link nell'email) | La sua copia con la foto (prezzo visibile). Copia/condivide il link regalo, lo invia per email subito o programma data e ora. |
+| Destinatario | `/r/{token regalo}` | Negozio, data, articolo, regole di cambio, sconto, QR e codice `FSC-XXXX`. **Mai** foto né prezzo. Può salvarlo con la sua email. |
+| Negozio | `/negozio` (email + password) | Scansiona il QR o scrive il codice, vede foto e dettagli (solo per le prove del proprio negozio), registra "Cambio effettuato" e "Sconto applicato" + importo speso in più. Imposta regole e sconto. |
+| Admin | `/admin` | Crea negozi (con account e email per la password), scarica QR/cartello in PNG/PDF, vede le metriche, esporta CSV. |
+| Tutti | `/privacy` | Informativa (versione `2026-11-v1`, **bozza da validare**). |
 
-## Modello dei dati (passo 1)
+Email inviate (tramite Resend):
+- **a chi regala**, alla creazione: (a) la sua copia con la foto in allegato e il link privato; (b) la versione regalo con link, codice e QR;
+- **al destinatario**, quando chi regala lo invia (subito o programmato): link, codice, QR, messaggio. L'indirizzo serve solo per la consegna;
+- **al destinatario che salva il regalo**: copia con link, codice, regole e sconto.
 
-- `users/{uid}` → `{ role: "admin" | "shop", shopId?, email }`: ruolo dell'account. Lo scrive solo un admin.
-- `shops/{shopId}` → `{ name, address, exchangeRules, discountText, active }`: dati **pubblici**
-  del negozio (leggibili per ID; l'elenco è solo admin). Il negozio può modificare solo regole e sconto.
-- `shopAccounts/{shopId}` → `{ loginEmail, uid }`: dati riservati, solo admin.
-- Tutto il resto (prove, codici, consensi, eventi…) è chiuso ai client e gestito dalle Functions.
+## Architettura e dati
 
-## Setup locale (sviluppo, gratis)
-
-Requisiti: Node 20+, Java 21+ (per gli emulatori di firebase-tools 14).
-
-```bash
-cd pilota-natale
-npm install
-npm --prefix web install
-cp web/.env.example web/.env.development.local   # VITE_USE_EMULATORS=true (solo `vite dev`)
-npm run emulators                       # terminale 1: Auth + Firestore (+ Storage) + UI su :4000
-npm run seed                            # terminale 2: admin + 2 negozi demo
-npm run web:dev                         # terminale 2: app su http://localhost:5173
-npm run test:rules:running              # test regole sugli emulatori già avviati
-# (a emulatori spenti: npm run test:rules)
+```
+pilota-natale/
+├── web/              App unica (Vite + React + TypeScript + Tailwind), mobile-first, PWA
+├── functions/        Cloud Functions v2 (TypeScript, europe-west1)
+├── firestore.rules   Regole Firestore      ─┐
+├── storage.rules     Regole Storage         ├─ testate in tests/
+├── firestore.indexes.json                  ─┘
+├── scripts/          seed, set-admin, controllo build
+└── tests/            test delle regole (emulatore)
 ```
 
-Account demo (solo emulatori): `admin@fiscal.test`, `negozio1@fiscal.test`, `negozio2@fiscal.test`, password `fiscal-demo`.
-Le email "imposta password" degli emulatori non partono: i link si vedono nella UI emulatori → Authentication.
+**Firestore**
 
-**Dal telefono in locale**: telefono e PC sulla stessa Wi-Fi, apri `http://IP-DEL-PC:5173`
-(l'app punta automaticamente agli emulatori sullo stesso IP). La fotocamera via browser richiede HTTPS:
-per i test con foto usa il deploy reale.
+| Collezione | Contenuto | Accesso client |
+|---|---|---|
+| `users/{uid}` | `role: admin \| shop`, `shopId` | proprio profilo in lettura; scrive solo l'admin |
+| `shops/{shopId}` | nome, indirizzo, regole cambio, sconto, attivo | lettura per ID; il negozio modifica solo regole e sconto; l'admin tutto |
+| `shopAccounts/{shopId}` | email di accesso | solo admin |
+| `proofs/{id}` | negozio, codice, descrizione, email acquirente, percorso foto, `giftToken`, hash del token privato, stato, cambio, sconto, importo extra, aperture, salvataggio | **nessuno** (solo Functions) |
+| `codes/{FSC-XXXX}` | codice → prova (unicità garantita in transazione) | nessuno |
+| `consents/{id}` | email, tipo (`privacy_notice` / `marketing`), concesso, **testo mostrato**, **versione informativa**, data e ora server, ruolo, negozio, prova | nessuno |
+| `giftSends/{id}` | invii al destinatario (`purpose: "consegna"`), stato, data programmata | nessuno |
+| `events/{id}` | `proof_created`, `link_opened`, `recipient_saved`, `gift_sent`, `exchange`, `discount_used`, `extra_spent` | nessuno |
+| `rateLimits`, `devOutbox` | tecnici | nessuno |
 
-## Deploy del passo 1 (funziona sul piano gratuito Spark)
+**Storage**: `uploads/{uid}/…` (solo creazione dal browser di chi regala, solo immagini ≤ 10 MB) →
+la Function la sposta in `receipts/{shopId}/{proofId}.jpg` (nessun accesso dai client).
 
-Una tantum, in Firebase Console del progetto `fiscal-9a0c8`:
+**Cloud Functions** (tutte in `europe-west1`)
 
-1. **Firestore**: se non esiste ancora, *Firestore Database → Crea database* in modalità produzione,
-   località `eur3 (europe-west)`.
-2. **Authentication → Metodo di accesso**: abilita **Email/password**
-   (dal passo 2 anche **Anonimo**).
-3. **Authentication → Impostazioni → Domini autorizzati**: aggiungi `fiscal-natale.web.app`.
-4. **Authentication → Modelli** (facoltativo): imposta la lingua dei modelli email in italiano.
+| Funzione | Tipo | Uso |
+|---|---|---|
+| `createProof` | callable | crea la prova dalla foto caricata, codice univoco, token, consensi, evento, email |
+| `getOwnerProof`, `sendGift`, `cancelGiftSend` | callable | pagina `/c/` di chi regala |
+| `dispatchScheduledGifts` | pianificata, ogni 5 min | invia gli invii programmati (con ripresa automatica e 3 tentativi) |
+| `openGift`, `saveGift` | callable | pagina `/r/` del destinatario (solo dati pubblici) |
+| `shopLookup`, `shopAction` | callable | app negozio (cambio/sconto in transazione: niente doppio uso) |
+| `adminStats`, `adminExport` | callable | metriche e CSV |
+| `api` | HTTP via Hosting `/api/**` | `/api/qr/{token}.png` (QR nelle email), `/api/receipt/o/{token}` (foto per chi regala), `/api/receipt/p/{id}` (foto per il negozio con login) |
+| `nightlyCleanup` | pianificata, 03:30 | cancella le foto dopo 180 giorni, gli upload abbandonati e le email di consegna dopo 30 giorni |
 
-Poi dal tuo computer:
+La configurazione web non va copiata a mano: l'app la legge da `/__/firebase/init.json`, che Firebase Hosting
+fornisce per il progetto su cui è pubblicata.
 
+---
+
+## Setup del progetto Firebase (una volta)
+
+Nella [console Firebase](https://console.firebase.google.com), progetto **Fiscal Pilota Natale**:
+
+1. **ID progetto** – *Impostazioni progetto → Generali*. Se non è `fiscal-pilota-natale`, aggiorna
+   `.firebaserc` (oppure `firebase use --add`).
+2. **App web** – *Impostazioni progetto → Le tue app → Aggiungi app → Web* (nome "pilota", senza Hosting extra).
+   Non serve copiare la configurazione.
+3. **Firestore** – *Firestore Database → Crea database* → modalità produzione → località
+   **`eur3 (europe-west)`** o `europe-west1`.
+4. **Storage** – *Storage → Inizia* → stessa località (es. `europe-west1`).
+5. **Authentication** – *Inizia* → *Metodo di accesso*: abilita **Email/password** e **Anonimo**.
+   *Impostazioni → Domini autorizzati*: c'è già `<id-progetto>.web.app`; aggiungi l'eventuale dominio personalizzato.
+   *Modelli*: imposta la lingua in **italiano** (email "reimposta password" ai negozi).
+6. **Budget** – Google Cloud Console → *Fatturazione → Budget e avvisi* → avviso a 5 €.
+   Per 3-5 negozi i consumi restano nelle quote gratuite.
+
+### Diventare admin
+Dopo il primo deploy: *Authentication → Utenti → Aggiungi utente* (la tua email + password), copia l'**UID**,
+poi *Firestore → Avvia raccolta* `users` → ID documento = UID → campi `role` (string) = `admin`, `email` (string).
+
+In alternativa con una chiave di service account (*Impostazioni progetto → Account di servizio → Genera nuova chiave*,
+**non** committarla):
+```bash
+GOOGLE_APPLICATION_CREDENTIALS=~/chiavi/pilota.json node scripts/set-admin.mjs tua@email.it --password UnaPassword --prod
+```
+
+## Email con Resend
+
+1. Crea un account su [resend.com](https://resend.com) e una **API key** (permesso "Sending access").
+2. Salvala come secret delle Functions:
+   ```bash
+   firebase functions:secrets:set RESEND_API_KEY
+   ```
+3. **Test subito, senza dominio**: lascia in `functions/.env` `MAIL_FROM="Fiscal <onboarding@resend.dev>"`.
+   Resend consegnerà **solo all'email con cui hai creato l'account Resend**: usa quella per le prove.
+4. **Per il pilota vero**: Resend → *Domains → Add domain* (es. `tuodominio.it`), aggiungi i record DNS (SPF/DKIM)
+   dal tuo provider, attendi "Verified", poi in `functions/.env`:
+   ```
+   MAIL_FROM="Fiscal <regali@tuodominio.it>"
+   MAIL_REPLY_TO=tua@email.it
+   ```
+   e rifai `npm run deploy`.
+
+Se `RESEND_API_KEY` manca, le prove vengono create lo stesso, ma le email non partono (errore nei log delle Functions).
+
+## Deploy
+
+Dal tuo computer (Node 20+):
 ```bash
 npm install -g firebase-tools
 firebase login
 cd pilota-natale
-npm install && npm --prefix web install
-firebase hosting:sites:create fiscal-natale      # crea il sito separato (una volta)
-npm run deploy:step1                              # build + hosting:natale + regole Firestore
+npm run install:all
+npm run deploy
 ```
+`npm run deploy` compila web e Functions, controlla che la build non punti agli emulatori, poi pubblica
+Hosting, regole Firestore/Storage, indici e Functions. Al primo deploy Firebase chiede di abilitare alcune API
+(Cloud Functions, Cloud Build, Artifact Registry, Cloud Scheduler, Secret Manager): conferma.
 
-Se il nome `fiscal-natale` è già preso, scegline un altro e aggiornalo in `.firebaserc`.
+Sito: `https://<id-progetto>.web.app`.
 
-> ⚠️ `firebase deploy --only firestore` sostituisce le regole Firestore del progetto. Il vecchio
-> Fiscal non usa Firestore (usa il Realtime Database, le cui regole non vengono toccate), quindi è sicuro.
-
-**Diventa admin**: crea il tuo utente in *Authentication → Utenti → Aggiungi utente*, poi in
-*Firestore → Avvia raccolta* `users` → documento con ID = **UID** del tuo utente, campi
-`role` (string) = `admin` e `email` (string) = la tua email.
-In alternativa, con una chiave di service account:
-
+Dati demo in produzione (2 negozi **(DEMO)** + 3 prove `FSC-DEMA`, `FSC-DEMB` già cambiata, `FSC-DEMC`):
 ```bash
-GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json node scripts/set-admin.mjs tua@email.it --prod
+GOOGLE_APPLICATION_CREDENTIALS=~/chiavi/pilota.json SEED_PASSWORD=UnaPasswordDemo node scripts/seed.mjs --prod
 ```
+Stampa i link di prova. Gli account demo sono `negozio1@fiscal.test` e `negozio2@fiscal.test`.
 
-## Come provare il passo 1 dal telefono
+## Sviluppo locale con gli emulatori
 
-1. Apri `https://fiscal-natale.web.app/admin` e accedi con l'account admin.
-2. **+ Nuovo negozio** → nome, indirizzo, email di accesso (usane una tua) → **Crea negozio**.
-3. Controlla la casella email: arriva "Reimposta la password" da Firebase → imposta la password.
-4. Nella scheda del negozio scarica **Cartello stampabile (PDF A5)** e aprilo.
-5. Inquadra il QR del cartello con la fotocamera di un altro telefono → si apre `/n/{id}` con il nome del negozio.
-6. Apri `https://fiscal-natale.web.app/negozio` e accedi con l'email del negozio e la nuova password.
-7. Prova **Disattiva negozio** → ricarica il QR: compare "Questo QR non è attivo". Riattivalo.
+Requisiti: Node 20+, Java 21+.
+```bash
+cd pilota-natale
+npm run install:all
+cp web/.env.example web/.env.development.local   # VITE_USE_EMULATORS=true (solo vite dev)
+npm run emulators            # terminale 1: Auth, Firestore, Storage, Functions, Pub/Sub + UI su :4000
+npm run seed                 # terminale 2: admin + 2 negozi + 3 prove demo (stampa i link)
+npm run web:dev              # terminale 2: http://localhost:5173
+npm run test:rules:running   # test regole Firestore/Storage (a emulatori spenti: npm run test:rules)
+```
+Account demo: `admin@fiscal.test`, `negozio1@fiscal.test`, `negozio2@fiscal.test` — password `fiscal-demo`.
+Negli emulatori le email **non partono**: le trovi in Firestore → `devOutbox` (UI su http://localhost:4000).
+
+Dal telefono in locale: stessa Wi-Fi, apri `http://IP-DEL-PC:5173`. La fotocamera nel browser richiede HTTPS:
+per provare foto e scansione QR usa il sito pubblicato.
+
+---
+
+## Checklist di test: dalla foto in cassa al cambio in negozio
+
+Servono: 2 telefoni (A = chi regala, B = destinatario/cassa) e un PC per l'admin.
+Usa come email di chi regala quella del tuo account Resend (se il dominio non è ancora verificato).
+
+**Admin e negozio**
+- [ ] PC: `/admin` → accedi → **+ Nuovo negozio** (nome, indirizzo, una tua email di accesso, regole, sconto) → *Crea negozio*.
+- [ ] Arriva l'email "reimposta la password" → imposta la password del negozio.
+- [ ] Scarica **Cartello stampabile (PDF A5)** e stampalo (o tienilo aperto sul PC).
+
+**In cassa: chi regala (telefono A)**
+- [ ] Inquadra il QR del cartello → si apre `/n/{negozio}` con il nome del negozio.
+- [ ] *Fotografa lo scontrino* → la fotocamera si apre → scatta → anteprima visibile.
+- [ ] Descrizione "Maglione blu, tg M", email. Il testo "Continuando accetti l'Informativa privacy" c'è e la casella "Voglio ricevere novità da Fiscal" **non** è spuntata.
+- [ ] *Crea la prova regalo* → "Prova regalo creata!" con codice `FSC-XXXX`.
+- [ ] *Aggiungi un altro regalo* → la fotocamera si riapre subito, l'email **non** viene richiesta → crea il secondo regalo con un codice diverso.
+- [ ] Email ricevuta: sezione A con la foto (allegato + anteprima) e *Apri la tua copia*; sezione B con link, codice e QR.
+
+**La copia di chi regala (telefono A)**
+- [ ] *Apri la tua copia*: foto dello scontrino visibile, versione regalo con QR e codice.
+- [ ] *Copia il link regalo* → incollalo in WhatsApp/Note: il link è `/r/…`.
+- [ ] *Invia per email* → *Invia ora* a un tuo secondo indirizzo → compare "Inviato".
+- [ ] *Programma* → tra 10 minuti → compare "Programmato" → entro ~5 minuti dall'ora scelta diventa "Inviato" (ricarica la pagina).
+- [ ] Programma un altro invio e premi *Annulla* → "Annullato".
+
+**Destinatario (telefono B)**
+- [ ] Apri il link regalo: negozio, data, articolo, regole, sconto, QR e codice. **Nessuna foto, nessun prezzo.**
+- [ ] *Salva il regalo* con un'email (casella marketing non spuntata di default) → "Regalo salvato!" → arriva l'email.
+- [ ] Sul telefono A la copia mostra "✓ Link aperto" e "✓ Salvato dal destinatario".
+
+**Cambio in negozio (telefono B come cassa)**
+- [ ] `/negozio` → accedi con l'account del negozio → *Scansiona il QR del regalo* → inquadra il QR sul telefono del destinatario.
+- [ ] "Prova valida": foto dello scontrino originale (prezzo, data, numero), descrizione, stato.
+- [ ] Importo speso in più "25,50" → *Sconto applicato* → "Sconto registrato".
+- [ ] *Cambio effettuato* → conferma → "Cambio registrato".
+- [ ] Riscansiona lo stesso QR → **"Prova già usata"** con data e ora del cambio.
+- [ ] Scrivi a mano il codice dell'altro regalo (es. `fsc 7k3p`, anche minuscolo) → "Prova valida".
+- [ ] Con il seed: scrivi `FSC-DEMC` dall'account di Bottega Aurora → **"Prova non valida per questo negozio"**.
+- [ ] *Impostazioni*: cambia lo sconto → salva → ricarica il link regalo sul telefono B: si vede il nuovo testo e il banner "già usata".
+
+**Metriche**
+- [ ] `/admin`: per il negozio di prova i numeri corrispondono: prove create 2, link aperti 1, salvati 1, cambi 1, sconti 1, speso in più 25,50 €, consensi marketing secondo le spunte.
+- [ ] *CSV prove*, *CSV eventi*, *CSV consensi marketing* si aprono in Excel con colonne separate e accenti corretti.
+- [ ] *Disattiva negozio* → il QR mostra "Questo QR non è attivo" → *Riattiva*.
+
+## Sicurezza e privacy
+
+- **Foto degli scontrini**: mai leggibili dai client. Si vedono solo da `/api/receipt/o/{token}` (link privato
+  di chi regala) o `/api/receipt/p/{id}` con login del **negozio proprietario**. La pagina `/r/` e le funzioni
+  che la servono non restituiscono mai foto, prezzo o email.
+- **Token**: 256 bit casuali (`crypto.randomBytes(32)`); il token privato di chi regala è salvato solo come hash SHA-256.
+- **Codice corto** `FSC-XXXX`: alfabeto senza caratteri ambigui, unicità garantita in transazione lato server,
+  cercabile solo da un negozio loggato e solo tra le sue prove.
+- **Rate limit** su creazione prove (30/ora per dispositivo), invii (20/ora per prova) e salvataggi.
+- **Consensi**: per ogni conferma si salvano due record (informativa + marketing, quest'ultimo anche se "no")
+  con testo mostrato, versione dell'informativa e ora del server. L'email del destinatario inserita da chi regala
+  sta solo in `giftSends` (`purpose: "consegna"`), non entra nei consensi né nell'export marketing, ed è cancellata
+  30 giorni dopo l'invio.
+- **Conservazione**: foto degli scontrini cancellate 180 giorni dopo la creazione (`RECEIPT_RETENTION_DAYS` in
+  `functions/src/common.ts`). Adeguala alla scadenza dei cambi dei negozi e all'informativa.
+- L'**informativa** in `web/src/pages/Privacy.tsx` è una **bozza**: va completata (titolare, contatti) e validata.
+  Se cambi il testo aggiorna `PRIVACY_VERSION` in `web/src/lib/privacy.ts` **e** `functions/src/common.ts`.
+
+## Problemi comuni
+
+| Sintomo | Causa / soluzione |
+|---|---|
+| "Servizio non disponibile" all'apertura del sito | Manca l'app web nel progetto (setup punto 2) o il sito non è stato pubblicato con `firebase deploy`. |
+| "Sessione scaduta" o errore alla creazione della prova | Accesso **Anonimo** non abilitato in Authentication. |
+| Le email non arrivano | `RESEND_API_KEY` non impostata, oppure mittente `onboarding@resend.dev` e destinatario diverso dall'email del tuo account Resend. Controlla i log: *Functions → Log*. |
+| L'invio programmato non parte | Cloud Scheduler non abilitato: rifai il deploy delle Functions e accetta l'abilitazione dell'API. |
+| Il negozio vede "Account non abilitato" | Il documento `users/{uid}` del negozio manca: ricrea il negozio dall'admin. |
+| Fotocamera non si apre per scansionare | Serve HTTPS e il permesso fotocamera del browser; in alternativa scrivi il codice. |
