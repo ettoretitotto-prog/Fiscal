@@ -185,6 +185,7 @@ function Scanner({ onResult, onCancel, onError }: { onResult: (t: string) => voi
 function ReceiptPhoto({ proofId }: { proofId: string }) {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
+  const [zoom, setZoom] = useState(false);
   useEffect(() => {
     let objectUrl = "";
     (async () => {
@@ -203,10 +204,18 @@ function ReceiptPhoto({ proofId }: { proofId: string }) {
   if (error) return <p className="text-sm text-stone-500">{error}</p>;
   if (!url) return <Spinner label="Carico la foto dello scontrino…" />;
   return (
-    <a href={url} target="_blank" rel="noreferrer">
-      <img src={url} alt="Scontrino originale" className="max-h-[60vh] w-full rounded-xl border border-stone-200 bg-stone-50 object-contain" />
-      <span className="mt-1 block text-center text-xs text-stone-500">Tocca per ingrandire</span>
-    </a>
+    <>
+      <button type="button" onClick={() => setZoom(true)} className="block w-full">
+        <img src={url} alt="Scontrino originale" className="max-h-[60vh] w-full rounded-xl border border-stone-200 bg-stone-50 object-contain" />
+        <span className="mt-1 block text-center text-xs text-stone-500">Tocca per ingrandire</span>
+      </button>
+      {zoom && (
+        <div className="fixed inset-0 z-50 overflow-auto bg-black/90" role="dialog" aria-label="Scontrino ingrandito" onClick={() => setZoom(false)}>
+          <button className="fixed right-3 top-3 z-10 rounded-full bg-white px-4 py-2 font-semibold text-stone-900">Chiudi</button>
+          <img src={url} alt="Scontrino originale ingrandito" className="mx-auto w-[200%] max-w-none sm:w-auto sm:max-w-full" />
+        </div>
+      )}
+    </>
   );
 }
 

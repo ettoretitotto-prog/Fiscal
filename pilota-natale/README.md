@@ -144,6 +144,16 @@ Hosting, regole Firestore/Storage, indici e Functions. Al primo deploy Firebase 
 
 Sito: `https://<id-progetto>.web.app`.
 
+### Deploy con service account (senza `firebase login`, anche da una sessione Claude Code)
+Se la chiave JSON di un service account del progetto è nella variabile `GOOGLE_SERVICE_ACCOUNT_JSON`
+(e la chiave Resend in `RESEND_API_KEY`):
+```bash
+umask 077 && printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" > /tmp/sa.json
+export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json
+printf '%s' "$RESEND_API_KEY" | npx firebase functions:secrets:set RESEND_API_KEY --data-file -
+npm run deploy
+```
+
 Dati demo in produzione (2 negozi **(DEMO)** + 3 prove `FSC-DEMA`, `FSC-DEMB` già cambiata, `FSC-DEMC`):
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS=~/chiavi/pilota.json SEED_PASSWORD=UnaPasswordDemo node scripts/seed.mjs --prod

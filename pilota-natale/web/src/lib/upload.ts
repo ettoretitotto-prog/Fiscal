@@ -48,10 +48,13 @@ function extFor(type: string): string {
   return "jpg";
 }
 
+const ALLOWED = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+
 /** Carica la foto e restituisce il percorso uploads/{uid}/{id}.{ext}. */
 export async function uploadReceipt(blob: Blob, onProgress?: (pct: number) => void): Promise<string> {
   const uid = await ensureSignedIn();
-  const type = blob.type && blob.type.startsWith("image/") ? blob.type : "image/jpeg";
+  const type = blob.type ? blob.type.toLowerCase() : "image/jpeg";
+  if (!ALLOWED.includes(type)) throw new Error("Formato foto non supportato: scatta la foto con la fotocamera.");
   const path = `uploads/${uid}/${randomId()}.${extFor(type)}`;
   const task = uploadBytesResumable(ref(storage, path), blob, { contentType: type });
   await new Promise<void>((resolve, reject) => {

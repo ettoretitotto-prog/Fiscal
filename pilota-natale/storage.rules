@@ -2,7 +2,7 @@ rules_version = '2';
 
 // Fiscal – Pilota Natale
 // - uploads/{uid}/…  : chi regala (login anonimo) carica la foto dello scontrino.
-//                      Solo creazione, solo immagini, max 10 MB, nessuna lettura.
+//                      Solo creazione, solo foto JPEG/PNG/WebP/HEIC (mai SVG), max 10 MB, nessuna lettura.
 //                      La Cloud Function createProof la sposta in receipts/.
 // - receipts/…       : nessun accesso dai client. Le foto si vedono solo tramite
 //                      /api/receipt, che verifica il link privato di chi ha creato
@@ -15,7 +15,7 @@ service firebase.storage {
         && request.auth.uid == uid
         && fileName.matches('^[A-Za-z0-9_-]{8,64}\\.(jpg|jpeg|png|webp|heic|heif)$')
         && request.resource.size < 10 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+        && request.resource.contentType.matches('image/(jpeg|png|webp|heic|heif)');
       allow read, update, delete: if false;
     }
     match /{allPaths=**} {

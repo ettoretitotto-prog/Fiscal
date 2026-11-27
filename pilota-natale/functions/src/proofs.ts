@@ -89,6 +89,15 @@ export function consentDocs(args: {
   ];
 }
 
+/** Solo foto raster: un SVG potrebbe contenere script. */
+export const ALLOWED_IMAGE_TYPES: Record<string, string[]> = {
+  "image/jpeg": ["jpg", "jpeg"],
+  "image/png": ["png"],
+  "image/webp": ["webp"],
+  "image/heic": ["heic"],
+  "image/heif": ["heif"],
+};
+
 const UPLOAD_NAME_RE = /^uploads\/([A-Za-z0-9]+)\/([A-Za-z0-9_-]{8,64}\.(jpg|jpeg|png|webp|heic|heif))$/;
 
 // ======================= createProof =======================
@@ -121,8 +130,8 @@ export const createProof = onCall(opts, async (req) => {
   const [exists] = await upload.exists();
   if (!exists) throw new HttpsError("failed-precondition", "Foto non trovata: riprova a scattarla.");
   const [meta] = await upload.getMetadata();
-  const contentType = String(meta.contentType ?? "");
-  if (!contentType.startsWith("image/") || Number(meta.size) > 10 * 1024 * 1024) {
+  const contentType = String(meta.contentType ?? "").toLowerCase();
+  if (!ALLOWED_IMAGE_TYPES[contentType]?.includes(m[3]) || Number(meta.size) > 10 * 1024 * 1024) {
     throw new HttpsError("invalid-argument", "Il file deve essere una foto (max 10 MB).");
   }
   const proofRef = db.collection("proofs").doc();
@@ -255,12 +264,14 @@ export const sendGift = onCall(opts, async (req) => {
     scheduledAt: Timestamp.fromMillis(scheduledMs),
     createdAt: FieldValue.serverTimestamp(), sentAt: null, error: null,
   });
-  if (immediate) {
-    const ok = await deliverGiftSend(ref.id);
-    if (!ok) throw new HttpsError("unavailable", "Invio non riuscito. Riprova tra poco.");
-  }
+  // Se l'invio immediato non riesce resta in coda e il dispatcher riprova da solo:
+  // non chiediamo all'utente di ripetere (eviterebbe email doppie).
+  if (immediate) await deliverGiftSend(ref.id);
   const g = (await ref.get()).data()!;
-  return { id: ref.id, status: g.status, scheduledAt: tsMillis(g.scheduledAt), sentAt: tsMillis(g.sentAt), toEmail };
+  return {
+    id: ref.id, status: g.status, scheduledAt: tsMillis(g.scheduledAt), sentAt: tsMillis(g.sentAt), toEmail,
+    retrying: immediate && g.status !== "sent",
+  };
 });
 
 /** Annulla un invio programmato non ancora partito. */

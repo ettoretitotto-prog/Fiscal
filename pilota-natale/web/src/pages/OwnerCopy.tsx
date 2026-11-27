@@ -161,12 +161,17 @@ function SendByEmail({ token, proof, reload }: { token: string; proof: OwnerProo
     setBusy(true);
     try {
       const s = await sendGift({ ownerToken: token, toEmail: toEmail.trim(), fromName: fromName.trim(), message: message.trim(), scheduledAt });
-      setOk(s.status === "sent" ? `Regalo inviato a ${s.toEmail}.` : `Invio programmato per ${fmtDateTime(s.scheduledAt)} a ${s.toEmail}.`);
+      setOk(
+        s.status === "sent" ? `Regalo inviato a ${s.toEmail}.`
+        : s.retrying ? `L'email per ${s.toEmail} non è partita subito: riproviamo automaticamente nei prossimi minuti. Non serve reinviarla.`
+        : `Invio programmato per ${fmtDateTime(s.scheduledAt)} a ${s.toEmail}.`,
+      );
       setToEmail("");
       setMessage("");
       await reload();
     } catch (err) {
       setError(fnError(err));
+      await reload().catch(() => {});
     } finally {
       setBusy(false);
     }

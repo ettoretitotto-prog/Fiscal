@@ -14,14 +14,17 @@ export const nightlyCleanup = onSchedule(
   { schedule: "every day 03:30", timeZone: TZ, region: REGION, timeoutSeconds: 540 },
   async () => {
     const now = Timestamp.now();
-    const expired = await db.collection("proofs").where("receiptDeleteAt", "<=", now).limit(300).get();
+    // Foto scadute: receiptDeleteAt torna null, così il documento esce dalla query.
     let photos = 0;
-    for (const d of expired.docs) {
-      const path = d.data().receiptPath as string | null;
-      if (!path) continue;
-      await bucket().file(path).delete({ ignoreNotFound: true });
-      await d.ref.update({ receiptPath: null, receiptDeletedAt: now });
-      photos++;
+    for (;;) {
+      const expired = await db.collection("proofs").where("receiptDeleteAt", "<=", now).limit(200).get();
+      if (expired.empty) break;
+      for (const d of expired.docs) {
+        const path = d.data().receiptPath as string | null;
+        if (path) await bucket().file(path).delete({ ignoreNotFound: true });
+        await d.ref.update({ receiptPath: null, receiptDeleteAt: null, receiptDeletedAt: now });
+        photos++;
+      }
     }
 
     const [files] = await bucket().getFiles({ prefix: "uploads/" });
@@ -42,11 +45,18 @@ export const nightlyCleanup = onSchedule(
     const old = Timestamp.fromMillis(Date.now() - 30 * 86_400_000);
     let redacted = 0;
     for (const status of ["sent", "cancelled", "failed"]) {
-      const sends = await db.collection("giftSends").where("status", "==", status).where("scheduledAt", "<=", old).limit(300).get();
-      for (const d of sends.docs) {
-        if (d.data().toEmail === null) continue;
-        await d.ref.update({ toEmail: null, fromName: null, message: null, redactedAt: now });
-        redacted++;
+      let last: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+      for (;;) {
+        let q = db.collection("giftSends").where("status", "==", status).where("scheduledAt", "<=", old).orderBy("scheduledAt").limit(300);
+        if (last) q = q.startAfter(last);
+        const sends = await q.get();
+        if (sends.empty) break;
+        last = sends.docs[sends.docs.length - 1];
+        for (const d of sends.docs) {
+          if (d.data().toEmail === null) continue;
+          await d.ref.update({ toEmail: null, fromName: null, message: null, redactedAt: now });
+          redacted++;
+        }
       }
     }
 

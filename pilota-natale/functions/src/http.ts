@@ -4,7 +4,7 @@ import { getAuth } from "firebase-admin/auth";
 import QRCode from "qrcode";
 import type { Response } from "express";
 import { REGION, TOKEN_RE, bucket, db, giftUrl, profileOf, sha256 } from "./common";
-import type { Proof } from "./proofs";
+import { ALLOWED_IMAGE_TYPES, type Proof } from "./proofs";
 
 /**
  * Endpoint HTTP dietro Firebase Hosting (/api/**):
@@ -68,6 +68,18 @@ async function streamReceipt(p: Proof, res: Response) {
     res.status(410).send("Foto non più disponibile");
     return;
   }
+  const type = (p.receiptContentType || "image/jpeg").toLowerCase();
+  if (!ALLOWED_IMAGE_TYPES[type]) {
+    res.status(415).send("Formato non supportato");
+    return;
+  }
   const [buf] = await bucket().file(p.receiptPath).download();
-  res.set("Cache-Control", "private, no-store").set("X-Robots-Tag", "noindex").type(p.receiptContentType || "image/jpeg").send(buf);
+  res
+    .set("Cache-Control", "private, no-store")
+    .set("X-Robots-Tag", "noindex")
+    .set("X-Content-Type-Options", "nosniff")
+    .set("Content-Security-Policy", "default-src 'none'; img-src 'self'; sandbox")
+    .set("Content-Disposition", "inline")
+    .type(type)
+    .send(buf);
 }

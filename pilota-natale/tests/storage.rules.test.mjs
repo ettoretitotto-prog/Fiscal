@@ -30,6 +30,8 @@ describe("storage", () => {
     assertFails(uploadBytes(ref(anon(), "uploads/u1/abcdefgh13.jpg"), IMG, { contentType: "image/jpeg" })));
   test("solo immagini", () =>
     assertFails(uploadBytes(ref(as("u1"), "uploads/u1/abcdefgh14.jpg"), IMG, { contentType: "application/pdf" })));
+  test("niente SVG (potrebbe contenere script)", () =>
+    assertFails(uploadBytes(ref(as("u1"), "uploads/u1/abcdefgh16.png"), IMG, { contentType: "image/svg+xml" })));
   test("niente file troppo grandi", () =>
     assertFails(uploadBytes(ref(as("u1"), "uploads/u1/abcdefgh15.jpg"), new Uint8Array(11 * 1024 * 1024), { contentType: "image/jpeg" })));
   test("nessuno rilegge il proprio upload dal client", () =>

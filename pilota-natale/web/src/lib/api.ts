@@ -17,7 +17,7 @@ export interface OwnerProof {
 }
 export const getOwnerProof = (ownerToken: string) => call<{ ownerToken: string }, OwnerProof>("getOwnerProof", { ownerToken });
 export const sendGift = (d: { ownerToken: string; toEmail: string; fromName: string; message: string; scheduledAt: number | null }) =>
-  call<typeof d, GiftSend>("sendGift", d);
+  call<typeof d, GiftSend & { retrying: boolean }>("sendGift", d);
 export const cancelGiftSend = (ownerToken: string, sendId: string) =>
   call<{ ownerToken: string; sendId: string }, { ok: true }>("cancelGiftSend", { ownerToken, sendId });
 
@@ -63,6 +63,12 @@ export const fmtEuro = (cents: number) => new Intl.NumberFormat("it-IT", { style
 /** Messaggio leggibile da un errore di Cloud Function. */
 export function fnError(e: unknown): string {
   const err = e as { code?: string; message?: string };
+  const code = err?.code ?? "";
+  if (code.startsWith("storage/") || code.startsWith("auth/")) {
+    if (code === "storage/unauthorized") return "Foto non accettata (solo foto, max 10 MB). Rifai la foto.";
+    if (/retry-limit|canceled|network/.test(code)) return "Connessione assente o lenta. Riprova.";
+    return "Caricamento non riuscito. Riprova.";
+  }
   if (err?.code === "functions/unavailable" || err?.code === "functions/internal" && !err.message) return "Servizio momentaneamente non disponibile. Riprova.";
   if (err?.message && !/^(internal|INTERNAL)$/.test(err.message)) return err.message;
   return "Si è verificato un errore. Riprova.";
