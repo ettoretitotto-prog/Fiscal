@@ -38,7 +38,7 @@
         ]
       },
       {
-        "regex": "^/(?!assets/|api/).*$",
+        "regex": "^/(|n/.*|c/.*|r/.*|negozio.*|admin.*|privacy|auth/.*|manifest\\.webmanifest)$",
         "headers": [
           {
             "key": "Cache-Control",

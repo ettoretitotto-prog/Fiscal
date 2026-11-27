@@ -150,6 +150,9 @@ Se la chiave JSON di un service account del progetto è nella variabile `GOOGLE_
 ```bash
 umask 077 && printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" > /tmp/sa.json
 export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa.json
+# se il service account appartiene a un ALTRO progetto Google Cloud, le quote vanno
+# attribuite a questo progetto, altrimenti le API rispondono "API not enabled":
+export GOOGLE_CLOUD_QUOTA_PROJECT=fiscal-pilota-natale
 printf '%s' "$RESEND_API_KEY" | npx firebase functions:secrets:set RESEND_API_KEY --data-file -
 npm run deploy
 ```
@@ -252,4 +255,6 @@ Usa come email di chi regala quella del tuo account Resend (se il dominio non è
 | Le email non arrivano | `RESEND_API_KEY` non impostata, oppure mittente `onboarding@resend.dev` e destinatario diverso dall'email del tuo account Resend. Controlla i log: *Functions → Log*. |
 | L'invio programmato non parte | Cloud Scheduler non abilitato: rifai il deploy delle Functions e accetta l'abilitazione dell'API. |
 | Il negozio vede "Account non abilitato" | Il documento `users/{uid}` del negozio manca: ricrea il negozio dall'admin. |
+| Errore CORS su una funzione (es. `getOwnerProof`) | Al primo deploy la funzione non è stata resa pubblica (succede se la build fallisce una volta). Le callable controllano gli accessi nel codice, quindi devono essere invocabili da tutti: `gcloud run services add-iam-policy-binding <nome-minuscolo> --member=allUsers --role=roles/run.invoker --region europe-west1`, oppure rifai il deploy di quella funzione. |
+| Link dell'email "reimposta password" con `apiKey=` vuoto | Succede nei primi minuti dopo la creazione dell'app web. Richiedi un nuovo link con "Password dimenticata?". In alternativa, in *Authentication → Modelli → Personalizza URL azione*, imposta `https://<id-progetto>.web.app/auth/azione` (pagina del sito per scegliere la password). |
 | Fotocamera non si apre per scansionare | Serve HTTPS e il permesso fotocamera del browser; in alternativa scrivi il codice. |

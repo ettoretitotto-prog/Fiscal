@@ -3,6 +3,7 @@ import { Route, Routes, Link } from "react-router";
 import BuyerStart from "./pages/BuyerStart";
 import GiftPage from "./pages/GiftPage";
 import OwnerCopy from "./pages/OwnerCopy";
+import AuthAction from "./pages/AuthAction";
 import Privacy from "./pages/Privacy";
 import { Brand, Page, Spinner } from "./components/ui";
 
@@ -83,6 +84,7 @@ export default function App() {
       <Route path="/admin/negozi/nuovo" element={<AdminNewShop />} />
       <Route path="/admin/negozi/:shopId" element={<AdminShop />} />
       <Route path="/privacy" element={<Privacy />} />
+      <Route path="/auth/azione" element={<AuthAction />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
     </Suspense>
