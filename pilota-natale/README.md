@@ -116,9 +116,11 @@ GOOGLE_APPLICATION_CREDENTIALS=~/chiavi/pilota.json node scripts/set-admin.mjs t
    ```bash
    firebase functions:secrets:set RESEND_API_KEY
    ```
-3. **Test subito, senza dominio**: lascia in `functions/.env` `MAIL_FROM="Fiscal <onboarding@resend.dev>"`.
+3. **Configurazione attuale**: dominio `resofiscal.it` verificato su Resend (regione Irlanda), mittente
+   `Fiscal <regali@resofiscal.it>`, risposte a `MAIL_REPLY_TO` (vedi `functions/.env`).
+4. **Test senza dominio** (solo per un nuovo progetto): lascia in `functions/.env` `MAIL_FROM="Fiscal <onboarding@resend.dev>"`.
    Resend consegnerà **solo all'email con cui hai creato l'account Resend**: usa quella per le prove.
-4. **Per il pilota vero**: Resend → *Domains → Add domain* (es. `tuodominio.it`), aggiungi i record DNS (SPF/DKIM)
+5. **Per il pilota vero**: Resend → *Domains → Add domain* (es. `tuodominio.it`), aggiungi i record DNS (SPF/DKIM)
    dal tuo provider, attendi "Verified", poi in `functions/.env`:
    ```
    MAIL_FROM="Fiscal <regali@tuodominio.it>"
@@ -142,7 +144,8 @@ npm run deploy
 Hosting, regole Firestore/Storage, indici e Functions. Al primo deploy Firebase chiede di abilitare alcune API
 (Cloud Functions, Cloud Build, Artifact Registry, Cloud Scheduler, Secret Manager): conferma.
 
-Sito: `https://<id-progetto>.web.app`.
+Sito: **https://resofiscal.it** (dominio su register.it; `www.resofiscal.it` reindirizza lì).
+Anche `https://fiscal-pilota-natale.web.app` resta raggiungibile.
 
 ### Deploy con service account (senza `firebase login`, anche da una sessione Claude Code)
 Se la chiave JSON di un service account del progetto è nella variabile `GOOGLE_SERVICE_ACCOUNT_JSON`
