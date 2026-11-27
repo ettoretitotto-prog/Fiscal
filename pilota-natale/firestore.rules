@@ -57,7 +57,9 @@ service cloud.firestore {
         && isText(d.address, 0, 160)
         && isText(d.exchangeRules, 0, 600)
         && isText(d.discountText, 0, 300)
-        && d.active is bool;
+        && d.active is bool
+        && (!('updatedAt' in d) || d.updatedAt == request.time)
+        && (!('createdAt' in d) || d.createdAt is timestamp);
     }
 
     match /shops/{shopId} {

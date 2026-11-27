@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import AdminLayout from "./AdminLayout";
-import { DEFAULT_DISCOUNT, DEFAULT_RULES, SHOP_ID_RE, createShop, slugify } from "../../lib/shops";
+import { DEFAULT_DISCOUNT, DEFAULT_RULES, SHOP_ID_RE, createShop, normalizeIdInput, slugify } from "../../lib/shops";
 import { Alert, Button, Card, Field, Input, TextArea, errorMessage } from "../../components/ui";
 
 function NewShopForm() {
@@ -16,7 +16,8 @@ function NewShopForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const effectiveId = idTouched ? shopId : slugify(name);
+  const effectiveId = (idTouched ? shopId : slugify(name)).replace(/-+$/, "");
+  const displayId = idTouched ? shopId : effectiveId;
   const idValid = SHOP_ID_RE.test(effectiveId);
 
   async function onSubmit(e: FormEvent) {
@@ -47,9 +48,9 @@ function NewShopForm() {
             hint={<>Il QR aprirà <span className="font-mono">/n/{effectiveId || "…"}</span>. Non si può cambiare dopo la stampa.</>}
           >
             <Input
-              value={effectiveId}
+              value={displayId}
               maxLength={40}
-              onChange={(e) => { setIdTouched(true); setShopId(slugify(e.target.value) || e.target.value.toLowerCase()); }}
+              onChange={(e) => { setIdTouched(true); setShopId(normalizeIdInput(e.target.value)); }}
               className="font-mono"
             />
           </Field>

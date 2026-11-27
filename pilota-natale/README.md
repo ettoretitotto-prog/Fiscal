@@ -41,17 +41,18 @@ Sito pubblico: `https://fiscal-natale.web.app` (sito Hosting separato; il sito d
 
 ## Setup locale (sviluppo, gratis)
 
-Requisiti: Node 20+, Java 11+ (per gli emulatori).
+Requisiti: Node 20+, Java 21+ (per gli emulatori di firebase-tools 14).
 
 ```bash
 cd pilota-natale
 npm install
 npm --prefix web install
-cp web/.env.example web/.env.local      # VITE_USE_EMULATORS=true
+cp web/.env.example web/.env.development.local   # VITE_USE_EMULATORS=true (solo `vite dev`)
 npm run emulators                       # terminale 1: Auth + Firestore (+ Storage) + UI su :4000
 npm run seed                            # terminale 2: admin + 2 negozi demo
 npm run web:dev                         # terminale 2: app su http://localhost:5173
-npm run test:rules                      # test delle regole Firestore
+npm run test:rules:running              # test regole sugli emulatori già avviati
+# (a emulatori spenti: npm run test:rules)
 ```
 
 Account demo (solo emulatori): `admin@fiscal.test`, `negozio1@fiscal.test`, `negozio2@fiscal.test`, password `fiscal-demo`.

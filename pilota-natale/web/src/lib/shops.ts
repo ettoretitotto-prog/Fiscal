@@ -22,6 +22,17 @@ export function slugify(name: string): string {
     .replace(/-+$/g, "");
 }
 
+/** Normalizza mentre si digita: come slugify ma conserva i trattini finali. */
+export function normalizeIdInput(v: string): string {
+  return v
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, 40);
+}
+
 export const SHOP_ID_RE = /^[a-z0-9][a-z0-9-]{2,39}$/;
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -87,7 +98,7 @@ export interface CreateShopResult {
  * Se il passo 2 fallisce, l'account appena creato viene eliminato.
  */
 export async function createShop(input: NewShopInput): Promise<CreateShopResult> {
-  const shopId = input.shopId.trim();
+  const shopId = input.shopId.trim().replace(/-+$/, "");
   const loginEmail = input.loginEmail.trim().toLowerCase();
   if (!SHOP_ID_RE.test(shopId)) throw new Error("ID negozio non valido (3-40 caratteri: lettere minuscole, numeri, trattini).");
   if (!input.name.trim()) throw new Error("Il nome del negozio è obbligatorio.");

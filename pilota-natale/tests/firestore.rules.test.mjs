@@ -56,6 +56,12 @@ describe("shops", () => {
     await assertFails(updateDoc(doc(as("shopA"), "shops/negozio-a"), { active: false }));
     await assertFails(updateDoc(doc(as("shopA"), "shops/negozio-b"), { exchangeRules: "x" }));
   });
+  test("updatedAt deve essere l'ora del server", async () => {
+    const { serverTimestamp, Timestamp } = await import("firebase/firestore");
+    await assertSucceeds(updateDoc(doc(as("shopA"), "shops/negozio-a"), { discountText: "x", updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(as("shopA"), "shops/negozio-a"), { discountText: "y", updatedAt: Timestamp.fromMillis(0) }));
+    await assertFails(updateDoc(doc(as("shopA"), "shops/negozio-a"), { discountText: "z", updatedAt: "<script>" }));
+  });
   test("testi troppo lunghi rifiutati", () =>
     assertFails(updateDoc(doc(as("shopA"), "shops/negozio-a"), { exchangeRules: "x".repeat(601) })));
   test("solo admin elimina", async () => {

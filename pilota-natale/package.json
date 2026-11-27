@@ -5,13 +5,15 @@
   "description": "Fiscal – Pilota Natale: prova d'acquisto regalo digitale",
   "type": "module",
   "scripts": {
-    "emulators": "firebase emulators:start --import ./emulator-data --export-on-exit ./emulator-data",
+    "emulators": "node -e \"require('fs').mkdirSync('emulator-data',{recursive:true})\" && firebase emulators:start --import ./emulator-data --export-on-exit ./emulator-data",
     "seed": "node scripts/seed.mjs",
     "set-admin": "node scripts/set-admin.mjs",
     "test:rules": "firebase emulators:exec --project demo-fiscal-rules --only firestore \"node --test tests/*.test.mjs\"",
+    "test:rules:running": "FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node --test tests/*.test.mjs",
     "web:dev": "npm --prefix web run dev",
     "web:build": "npm --prefix web run build",
-    "deploy:step1": "npm run web:build && firebase deploy --only hosting:natale,firestore"
+    "predeploy:check": "node scripts/check-build.mjs",
+    "deploy:step1": "npm run web:build && npm run predeploy:check && firebase deploy --only hosting:natale,firestore"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",
