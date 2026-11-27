@@ -1,7 +1,7 @@
 import { Brand, Page } from "../components/ui";
 import { PRIVACY_VERSION } from "../lib/privacy";
 
-// BOZZA – da far validare da un consulente privacy prima del pilota.
+// Testo da far rileggere a un consulente privacy.
 // Quando cambi il testo, aggiorna PRIVACY_VERSION in lib/privacy.ts.
 
 function H({ children }: { children: React.ReactNode }) {
@@ -14,15 +14,17 @@ export default function Privacy() {
       <Brand subtitle="Informativa privacy" />
       <h1 className="text-2xl font-bold">Informativa privacy</h1>
       <p className="mt-1 text-sm text-stone-500">Versione {PRIVACY_VERSION} · Servizio “Prova d'acquisto regalo” (pilota)</p>
-      <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-        Bozza in attesa di validazione legale.
-      </p>
 
       <div className="space-y-3 text-[15px] leading-relaxed text-stone-800">
         <H>Chi tratta i tuoi dati</H>
         <p>
-          Titolare del trattamento è Fiscal [ragione sociale, indirizzo, email di contatto da completare]. I negozi aderenti
-          ricevono solo i dati delle prove d'acquisto create presso di loro, per gestire cambi e sconti.
+          Titolare del trattamento è <strong>Ettore Titotto</strong>, persona fisica che gestisce il progetto sperimentale
+          Fiscal, Via Leon Battista Alberti 25, Treviso (TV). Contatto:{" "}
+          <a href="mailto:ettoretitotto@icloud.com" className="text-brand underline">ettoretitotto@icloud.com</a>.
+        </p>
+        <p>
+          I negozi aderenti ricevono solo i dati delle prove d'acquisto create presso di loro (inclusa la foto dello
+          scontrino) e li usano, come titolari autonomi, per gestire cambi e sconti nel proprio negozio.
         </p>
 
         <H>Quali dati trattiamo</H>
@@ -54,14 +56,16 @@ export default function Privacy() {
 
         <H>Per quanto tempo</H>
         <p>
-          Le prove d'acquisto e le foto degli scontrini sono conservate fino a 90 giorni dopo la scadenza del periodo di
-          cambio del negozio, poi cancellate. I consensi sono conservati finché non li revochi e per il tempo necessario a dimostrarli.
+          Le foto degli scontrini sono cancellate automaticamente 180 giorni dopo la creazione della prova d'acquisto
+          (cioè ben oltre la scadenza dei cambi dei negozi del pilota). L'email del destinatario inserita da chi regala è
+          cancellata 30 giorni dopo la consegna. I consensi sono conservati finché non li revochi e per il tempo necessario
+          a dimostrarli.
         </p>
 
         <H>I tuoi diritti</H>
         <p>
           Puoi chiedere accesso, rettifica, cancellazione, limitazione, opposizione e portabilità dei dati, e revocare il consenso,
-          scrivendo a [email di contatto]. Puoi proporre reclamo al Garante per la protezione dei dati personali.
+          scrivendo a ettoretitotto@icloud.com. Puoi proporre reclamo al Garante per la protezione dei dati personali.
         </p>
       </div>
     </Page>
