@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #14532d;
+  --color-brand-dark: #0f3d21;
+  --color-brand-soft: #e7f2ea;
+  --color-gift: #b91c1c;
+  --color-paper: #fbfaf7;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html, body, #root { min-height: 100%; }
+body {
+  background: var(--color-paper);
+  color: #1c1917;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+input, textarea, select { font-size: 16px; } /* evita lo zoom automatico su iOS */

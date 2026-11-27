@@ -1,0 +1,12 @@
+{
+  "projects": {
+    "default": "fiscal-9a0c8"
+  },
+  "targets": {
+    "fiscal-9a0c8": {
+      "hosting": {
+        "natale": ["fiscal-natale"]
+      }
+    }
+  }
+}

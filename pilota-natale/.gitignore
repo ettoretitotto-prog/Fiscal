@@ -1,0 +1,9 @@
+node_modules/
+web/dist/
+emulator-data/
+*.log
+.firebase/
+serviceAccountKey.json
+.env
+.env.*
+!.env.example

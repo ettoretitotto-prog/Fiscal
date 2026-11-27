@@ -1,0 +1,10 @@
+rules_version = '2';
+// Pilota Natale – le regole complete per le foto degli scontrini arrivano al passo 2.
+// Per ora tutto è chiuso.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
